@@ -224,6 +224,35 @@ def analyze_replay(fills: list[dict], open_unrealized: float = 0.0) -> dict:
     }
 
 
+def fetch_month_days(address: str, start_ms: int, end_ms: int):
+    """Return daily realized-after-fees rows from HL fills for the calendar."""
+    main, _role = resolve_user(address)
+    fills = post({"type": "userFillsByTime", "user": main, "startTime": start_ms, "endTime": end_ms, "aggregateByTime": False})
+    if not isinstance(fills, list):
+        fills = []
+    by_date = defaultdict(lambda: {"realized_after_fees": 0.0, "fees": 0.0, "fills": 0, "volume": 0.0})
+    for fill in fills:
+        ts = int(fill.get("time") or 0)
+        day = dt.datetime.fromtimestamp(ts / 1000, CT).date().isoformat()
+        rec = by_date[day]
+        rec["realized_after_fees"] += safe_float(fill.get("closedPnl")) - safe_float(fill.get("fee"))
+        rec["fees"] += safe_float(fill.get("fee"))
+        rec["fills"] += 1
+        rec["volume"] += abs(safe_float(fill.get("sz")) * safe_float(fill.get("px")))
+    return [
+        {
+            "date": day,
+            "realized_after_fees": rec["realized_after_fees"],
+            "fees": rec["fees"],
+            "fills": rec["fills"],
+            "volume": rec["volume"],
+            "result": "Win" if rec["realized_after_fees"] > 0 else "Loss" if rec["realized_after_fees"] < 0 else "Flat",
+            "source": "hyperliquid",
+        }
+        for day, rec in sorted(by_date.items())
+    ]
+
+
 def fetch_account(label: str, address: str, start_ms: int, end_ms: int):
     main, role = resolve_user(address)
     fills = post({"type": "userFillsByTime", "user": main, "startTime": start_ms, "endTime": end_ms, "aggregateByTime": False})
@@ -341,14 +370,21 @@ def fetch_account(label: str, address: str, start_ms: int, end_ms: int):
 def main():
     now = dt.datetime.now(CT)
     start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     start_ms = int(start.timestamp() * 1000)
+    month_start_ms = int(month_start.timestamp() * 1000)
     end_ms = int(now.timestamp() * 1000)
     DATA_DIR.mkdir(parents=True, exist_ok=True)
+    managed_address = load_managed_address()
+    managed = fetch_account("Managed HL", managed_address, start_ms, end_ms)
+    managed["month_days"] = fetch_month_days(managed_address, month_start_ms, end_ms)
+    managed["month_start_date"] = month_start.date().isoformat()
     payload = {
         "generated_at": now.isoformat(),
         "window_ct": f"{start.strftime('%Y-%m-%d %I:%M %p %Z')} → {now.strftime('%I:%M %p %Z')}",
+        "month_start_date": month_start.date().isoformat(),
         "manual": fetch_account("Tim manual HL", MANUAL, start_ms, end_ms),
-        "managed": fetch_account("Managed HL", load_managed_address(), start_ms, end_ms),
+        "managed": managed,
     }
     OUT.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     print(f"Wrote {OUT}")

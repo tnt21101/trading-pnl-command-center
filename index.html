@@ -346,21 +346,25 @@
     function renderHistory() {
       const el = document.getElementById('historyHeat');
       const pill = document.getElementById('historyPill');
-      if (!historyData || !(historyData.days||[]).length) {
-        el.innerHTML = '<div class="empty">No backfilled history yet. Run scripts/import_notion_history.py.</div>';
-        if (pill) pill.textContent = 'empty';
-        return;
-      }
       const today = new Date().toISOString().slice(0,10);
-      const sourceDays = [...(historyData.days||[])].filter(d => d.date && d.realized_after_fees !== null && d.realized_after_fees !== undefined);
+      const monthStartFallback = today.slice(0, 8) + '01';
+      const active = account === 'managed' ? data.managed : data.manual;
+      const isManaged = account === 'managed';
+      const sourceDaysRaw = isManaged ? (data.managed?.month_days || []) : (historyData?.days || []);
+      const sourceDays = [...sourceDaysRaw].filter(d => d.date && d.realized_after_fees !== null && d.realized_after_fees !== undefined);
       const byDate = Object.fromEntries(sourceDays.map(d => [d.date, {...d}]));
-      if (data && data.manual) {
+      if (active) {
         byDate[today] = {
-          ...(byDate[today] || {}), date: today, result: (data.manual.closed_after_fees||0) > 0 ? 'Win' : (data.manual.closed_after_fees||0) < 0 ? 'Loss' : 'Flat',
-          realized_after_fees: data.manual.closed_after_fees, fees: data.manual.fees, fills: data.manual.fills, source: 'live'
+          ...(byDate[today] || {}), date: today, result: (active.closed_after_fees||0) > 0 ? 'Win' : (active.closed_after_fees||0) < 0 ? 'Loss' : 'Flat',
+          realized_after_fees: active.closed_after_fees, fees: active.fees, fills: active.fills, source: 'live'
         };
       }
       const days = Object.values(byDate).sort((a,b) => a.date.localeCompare(b.date));
+      if (!days.length) {
+        el.innerHTML = `<div class="empty">No ${isManaged ? 'managed HL' : 'manual'} monthly history yet. Refresh HL to build the live calendar.</div>`;
+        if (pill) pill.textContent = isManaged ? 'Managed HL · empty' : 'Manual · empty';
+        return;
+      }
       const totals = {
         days: days.length,
         realized_after_fees: days.reduce((a,d)=>a+Number(d.realized_after_fees||0),0),
@@ -368,8 +372,8 @@
         wins: days.filter(d=>Number(d.realized_after_fees||0)>0).length,
         losses: days.filter(d=>Number(d.realized_after_fees||0)<0).length
       };
-      if (pill) pill.textContent = `${days.length} days · live`;
-      const startDate = (historyData.start_date || days[0].date || today);
+      if (pill) pill.textContent = `${isManaged ? 'Managed HL' : 'Tim manual'} · ${days.length} days`;
+      const startDate = (isManaged ? (data.managed?.month_start_date || data.month_start_date) : historyData?.start_date) || days[0].date || monthStartFallback;
       const [yy, mm] = startDate.split('-').map(Number);
       const monthStart = new Date(Date.UTC(yy, mm-1, 1));
       const monthEnd = new Date(Date.UTC(yy, mm, 0));
@@ -386,8 +390,9 @@
         const state = pnl === null ? '' : pnl >= 0 ? 'win' : 'loss';
         cells += `<div class="cal-day ${state}" title="${iso}${rec?.source==='live'?' · live':''}"><div class="cal-top"><span>${dayNum}</span><span>${rec?.source==='live'?'LIVE':''}</span></div><div><div class="cal-pnl ${pnl===null?'neutral':cls(pnl)}">${pnl===null?'—':fmt(pnl)}</div><div class="cal-meta">${rec ? `${rec.fills||0} fills` : 'no data'}</div></div></div>`;
       }
+      const startLabel = new Date(Date.UTC(yy, mm-1, Number(startDate.slice(8,10) || 1))).toLocaleDateString(undefined, {month:'short', day:'numeric', timeZone:'UTC'});
       const summary = `<div class="history-summary">
-        <div class="mini"><span class="label">Since Jun 1</span><b>${totals.days}</b></div>
+        <div class="mini"><span class="label">Since ${startLabel}</span><b>${totals.days}</b></div>
         <div class="mini"><span class="label">Net realized</span><b class="${cls(totals.realized_after_fees)}">${fmt(totals.realized_after_fees)}</b></div>
         <div class="mini"><span class="label">Fees</span><b class="negative">${fmt(-Math.abs(totals.fees||0))}</b></div>
         <div class="mini"><span class="label">Win/Loss</span><b>${totals.wins}/${totals.losses}</b></div>
@@ -401,6 +406,7 @@
       document.getElementById('positionsTable').innerHTML = renderPositions({positions:[...(m.positions||[]),...(g.positions||[])]});
       document.getElementById('timeline').innerHTML = '<div class="empty">Comparison view keeps accounts separate. Pick an account for trade timeline.</div>';
       document.getElementById('bhReview').innerHTML = '<div class="prompt"><b>Compare</b>Manual account is for Tim discretionary review. Managed account is for automated account protection and small-position status.</div>';
+      renderHistory();
     }
     function render() {
       document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.account === account));
