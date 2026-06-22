@@ -1,0 +1,453 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Trading P&L Command Center</title>
+  <style>
+    :root {
+      --bg: #05070a;
+      --panel: #0b1017;
+      --panel-2: #101722;
+      --panel-3: #151e2b;
+      --ink: #eef4ff;
+      --muted: #8b97aa;
+      --faint: #536074;
+      --line: rgba(158, 176, 207, .16);
+      --green: #39d98a;
+      --green-soft: rgba(57, 217, 138, .13);
+      --red: #ff5570;
+      --red-soft: rgba(255, 85, 112, .13);
+      --amber: #ffc857;
+      --blue: #6aa7ff;
+      --shadow: 0 24px 80px rgba(0,0,0,.45);
+      --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      --sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--ink); font-family: var(--sans); }
+    body::before {
+      content: ""; position: fixed; inset: 0; pointer-events: none;
+      background:
+        radial-gradient(circle at 20% 0%, rgba(57, 217, 138, .11), transparent 32%),
+        radial-gradient(circle at 82% 12%, rgba(106, 167, 255, .10), transparent 30%),
+        linear-gradient(rgba(255,255,255,.025) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,.025) 1px, transparent 1px);
+      background-size: auto, auto, 48px 48px, 48px 48px;
+      mask-image: linear-gradient(to bottom, #000 0%, rgba(0,0,0,.75) 45%, transparent 100%);
+    }
+    .app { width: min(1540px, calc(100vw - 18px)); margin: 0 auto; padding: 8px 0 32px; position: relative; }
+    header { position: sticky; top: 0; z-index: 20; display: grid; grid-template-columns: auto minmax(280px, 1fr) auto; gap: 8px; align-items: center; margin-bottom: 8px; padding: 8px; background: rgba(5,7,10,.82); border: 1px solid var(--line); border-radius: 18px; box-shadow: 0 10px 36px rgba(0,0,0,.35); backdrop-filter: blur(18px); }
+    .brand { display:flex; align-items:center; gap:8px; min-width: 220px; }
+    .brand-dot { width:9px; height:9px; border-radius:50%; background:var(--green); box-shadow:0 0 18px rgba(57,217,138,.8); }
+    .eyebrow { color: var(--ink); font: 900 13px/1 var(--mono); letter-spacing: -.03em; text-transform: uppercase; white-space: nowrap; }
+    h1, .sub { display:none; }
+    .status-card { min-width:0; background: transparent; border: 0; border-radius: 0; padding: 0; box-shadow: none; backdrop-filter: none; display:flex; align-items:center; justify-content:flex-end; gap:6px; }
+    .status-row { display: flex; align-items: center; gap: 6px; padding: 6px 8px; border: 1px solid rgba(158,176,207,.12); border-radius: 999px; background: rgba(255,255,255,.035); min-width:0; }
+    .status-row.window { max-width: 360px; }
+    .status-row:last-child { border: 1px solid rgba(158,176,207,.12); }
+    .label { color: var(--muted); font-size: 8px; letter-spacing: .06em; text-transform: uppercase; white-space: nowrap; }
+    .value { font-family: var(--mono); font-weight: 850; font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .status-actions { display:flex; gap:6px; }
+    .status-actions button { padding: 6px 9px; border-radius:999px; font-size:10px; }
+    .tabs { display: flex; gap: 5px; flex-wrap: nowrap; margin: 0; justify-content:center; }
+    .tab { border: 1px solid var(--line); color: var(--muted); background: rgba(11,16,23,.72); border-radius: 999px; padding: 6px 10px; font-size: 11px; font-weight: 800; cursor: pointer; white-space:nowrap; }
+    .tab.active { color: var(--ink); border-color: rgba(57,217,138,.45); background: var(--green-soft); }
+    .grid { display: grid; gap: 7px; }
+    .score-grid { grid-template-columns: repeat(6, minmax(0, 1fr)); margin-bottom: 8px; }
+    .card { background: linear-gradient(180deg, rgba(16,23,34,.92), rgba(8,12,18,.92)); border: 1px solid var(--line); border-radius: 18px; padding: 12px; box-shadow: 0 12px 34px rgba(0,0,0,.23); position: relative; overflow: hidden; }
+    .card::after { content: ""; position: absolute; inset: 0; pointer-events: none; border-radius: inherit; background: linear-gradient(135deg, rgba(255,255,255,.07), transparent 34%); opacity: .38; }
+    .metric-card { border-radius: 15px; padding: 8px 10px; min-height: 43px; display: grid; grid-template-columns: minmax(0, 1fr); align-items: center; gap: 3px; }
+    .metric-card.account, .metric-card.status { grid-column: auto; }
+    .metric-label { color: var(--muted); font-size: 8px; text-transform: uppercase; letter-spacing: .08em; font-weight: 900; white-space: nowrap; }
+    .metric { font-family: var(--mono); font-size: clamp(14px, 1.04vw, 18px); line-height: 1; letter-spacing: -.055em; font-weight: 950; white-space: nowrap; text-align: left; }
+    .metric.text { font-family: var(--sans); font-size: clamp(12px, .92vw, 15px); letter-spacing: -.04em; white-space: nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .positive { color: var(--green); }
+    .negative { color: var(--red); }
+    .neutral { color: var(--ink); }
+    .metric-note { margin-top: 8px; color: var(--muted); font-size: 12px; }
+    .metric-card .metric-note { display: none; }
+    .section { margin-top: 8px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; align-items:start; }
+    .section.wide { grid-template-columns: 1fr 1fr; }
+    .analysis-layout { grid-template-columns: minmax(0, 1.08fr) minmax(420px, .92fr); }
+    .side-stack { display:grid; gap:8px; align-content:start; }
+    .panel-title { display:flex; align-items:center; justify-content:space-between; gap:8px; margin: 0 0 8px; min-height:24px; }
+    .panel-title h2 { margin: 0; font-size: 14px; letter-spacing: -.02em; }
+    .pill { display:inline-flex; align-items:center; gap:5px; border: 1px solid var(--line); border-radius: 999px; padding: 4px 7px; color: var(--muted); font: 750 10px/1 var(--mono); white-space:nowrap; }
+    table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+    th { color: var(--faint); text-align: left; font-size: 9px; text-transform: uppercase; letter-spacing: .09em; padding: 0 8px 6px; border-bottom: 1px solid var(--line); }
+    td { padding: 8px 8px; border-bottom: 1px solid rgba(158,176,207,.10); font-size: 13px; }
+    td.num { font-family: var(--mono); text-align: right; }
+    th:last-child, td:last-child { padding-right: 10px; }
+    .cluster-table th:last-child, .cluster-table td:last-child { white-space: nowrap; min-width: 108px; }
+    th.num { text-align: right; }
+    .ticker { font-family: var(--mono); font-weight: 900; color: var(--ink); }
+    .side { font: 800 11px/1 var(--mono); padding: 5px 8px; border-radius: 999px; background: rgba(255,255,255,.06); color: var(--muted); }
+    .side.long { color: var(--green); background: var(--green-soft); }
+    .side.short { color: var(--red); background: var(--red-soft); }
+    .journal { display:grid; gap: 7px; }
+    .prompt { background: rgba(255,255,255,.035); border: 1px solid var(--line); border-radius: 13px; padding: 8px; font-size:13px; line-height:1.3; }
+    .prompt b { display:block; font-size: 10px; letter-spacing:.08em; text-transform:uppercase; color: var(--muted); margin-bottom: 5px; }
+    textarea { width: 100%; min-height: 58px; resize: vertical; color: var(--ink); background: rgba(0,0,0,.22); border: 1px solid var(--line); border-radius: 12px; padding: 9px; font: 500 13px/1.35 var(--sans); outline: none; }
+    textarea:focus { border-color: rgba(57,217,138,.55); box-shadow: 0 0 0 3px rgba(57,217,138,.08); }
+    .btn-row { display:flex; gap:7px; flex-wrap:wrap; margin-top: 8px; }
+    button { border: 1px solid var(--line); background: rgba(255,255,255,.06); color: var(--ink); border-radius: 11px; padding: 8px 10px; font-weight: 850; cursor:pointer; }
+    button.primary { background: var(--green); color: #041009; border-color: transparent; }
+    .timeline { display:grid; grid-template-columns: .86fr 1.14fr; gap: 8px; }
+    .replay-left, .replay-right { display:grid; gap:7px; align-content:start; }
+    .trade { display:grid; grid-template-columns: 62px 1fr auto; gap: 8px; align-items:center; background: rgba(255,255,255,.032); border:1px solid var(--line); border-radius: 12px; padding: 7px 8px; }
+    .time { font-family: var(--mono); color: var(--muted); font-size: 10px; }
+    .trade-main b { font-family: var(--mono); font-size:12px; }
+    .trade-main span { display:block; color: var(--muted); font-size: 11px; margin-top:2px; line-height:1.25; }
+    .replay-grid { display:grid; grid-template-columns: repeat(2, 1fr); gap:6px; }
+    .replay-tile { border:1px solid var(--line); border-radius:12px; padding:8px; background:rgba(255,255,255,.032); }
+    .replay-tile span { display:block; color:var(--muted); font-size:8px; text-transform:uppercase; letter-spacing:.08em; }
+    .replay-tile b { display:block; margin-top:4px; font:950 15px/1 var(--mono); }
+    .coach { border:1px solid rgba(57,217,138,.22); background:rgba(57,217,138,.07); border-radius:12px; padding:8px; color:#d9ffe9; font-size:12px; line-height:1.28; }
+    .score-strip { display:grid; grid-template-columns: repeat(5, 1fr); gap:5px; }
+    .score { border:1px solid var(--line); border-radius:999px; padding:5px 7px; display:flex; justify-content:space-between; gap:5px; font-size:10px; color:var(--muted); }
+    .score b { color:var(--ink); font-family:var(--mono); }
+    .cluster-table { margin-top:2px; }
+    .journal-summary { display:grid; gap:7px; }
+    .journal-line { display:grid; grid-template-columns: 98px 1fr; gap:8px; align-items:center; border:1px solid var(--line); border-radius:12px; padding:7px 8px; background:rgba(255,255,255,.032); font-size:12px; color:var(--muted); }
+    .journal-line b { color:var(--ink); font-size:10px; text-transform:uppercase; letter-spacing:.08em; }
+    .journal-editor { display:none; margin-top:8px; }
+    .journal-editor.open { display:grid; }
+    .empty { color: var(--muted); padding: 12px; border: 1px dashed var(--line); border-radius: 14px; }
+    .heat { display:grid; grid-template-columns: repeat(7, 1fr); gap: 8px; }
+    .day { aspect-ratio: 1; border-radius: 12px; background: rgba(255,255,255,.04); border: 1px solid var(--line); display:flex; align-items:center; justify-content:center; font:800 11px/1 var(--mono); color: var(--muted); }
+    .day.good { background: var(--green-soft); color: var(--green); border-color: rgba(57,217,138,.25); }
+    .day.bad { background: var(--red-soft); color: var(--red); border-color: rgba(255,85,112,.25); }
+    .history-summary { display:grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 12px; }
+    .mini { border:1px solid var(--line); border-radius:14px; padding:10px; background:rgba(255,255,255,.035); }
+    .mini b { display:block; font:900 15px/1 var(--mono); margin-top:6px; }
+    .history-list { display:grid; gap:8px; max-height:360px; overflow:auto; padding-right:4px; }
+    .history-row { display:grid; grid-template-columns: 92px 1fr auto; gap:10px; align-items:center; border:1px solid var(--line); border-radius:14px; padding:10px; background:rgba(255,255,255,.032); }
+    .history-row .date { color:var(--muted); font:800 12px/1 var(--mono); }
+    .history-row .meta { color:var(--muted); font-size:12px; margin-top:3px; }
+    .calendar-grid { display:grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap:6px; }
+    .dow { color:var(--faint); font:800 10px/1 var(--mono); text-transform:uppercase; text-align:center; padding:3px 0; }
+    .cal-day { min-height:70px; border:1px solid var(--line); border-radius:13px; padding:8px; background:rgba(255,255,255,.028); display:flex; flex-direction:column; justify-content:space-between; gap:6px; }
+    .cal-day.blank { opacity:.18; }
+    .cal-day.win { background:linear-gradient(180deg, rgba(57,217,138,.13), rgba(255,255,255,.025)); border-color:rgba(57,217,138,.26); }
+    .cal-day.loss { background:linear-gradient(180deg, rgba(255,85,112,.13), rgba(255,255,255,.025)); border-color:rgba(255,85,112,.26); }
+    .cal-top { display:flex; justify-content:space-between; align-items:center; color:var(--muted); font:800 11px/1 var(--mono); }
+    .cal-pnl { font:900 12px/1 var(--mono); text-align:right; }
+    .cal-meta { color:var(--faint); font-size:10px; text-align:right; }
+    @media (max-width: 1250px) { header { grid-template-columns: 1fr; } .status-card { justify-content:flex-start; flex-wrap:wrap; } .tabs { justify-content:flex-start; } .score-grid { grid-template-columns: repeat(3, 1fr); } }
+    @media (max-width: 1100px) { .section, .section.wide, .analysis-layout, .timeline { grid-template-columns: 1fr; } .side-stack { display:grid; } }
+    @media (max-width: 700px) { .app { width: min(100vw - 12px, 1500px); padding-top: 6px; } .card { padding: 10px; border-radius: 16px; overflow-x:auto; } .score-grid { grid-template-columns: repeat(2, 1fr); } .trade, .journal-line { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <main class="app">
+    <header>
+      <div class="brand"><span class="brand-dot"></span><div class="eyebrow">P&L Command Center</div></div>
+      <nav class="tabs" aria-label="Account view">
+        <button class="tab active" data-account="manual">Tim manual</button>
+        <button class="tab" data-account="managed">Managed HL</button>
+        <button class="tab" data-account="compare">Side-by-side</button>
+      </nav>
+      <aside class="status-card">
+        <div class="status-row"><span class="label">Mode</span><span class="value" id="dataMode">Loading</span></div>
+        <div class="status-row"><span class="label">Refresh</span><span class="value" id="lastRefresh">—</span></div>
+        <div class="status-row window"><span class="label">Window</span><span class="value" id="windowText">Today CT</span></div>
+        <div class="status-actions"><button class="primary" id="refreshHL">Refresh</button><button id="toggleAuto">Auto: on</button></div>
+      </aside>
+    </header>
+
+    <section class="grid score-grid" id="scoreGrid"></section>
+
+    <section class="section wide">
+      <div class="card">
+        <div class="panel-title"><h2>P&L by ticker</h2><span class="pill" id="fillPill">0 fills</span></div>
+        <div id="tickerTable"></div>
+      </div>
+      <div class="card">
+        <div class="panel-title"><h2>Open positions</h2><span class="pill" id="riskPill">Risk scan</span></div>
+        <div id="positionsTable"></div>
+      </div>
+    </section>
+
+    <section class="section analysis-layout">
+      <div class="card">
+        <div class="panel-title"><h2>Replay the day + leak detector</h2><span class="pill">flight recorder</span></div>
+        <div class="timeline" id="timeline"></div>
+      </div>
+      <div class="side-stack">
+        <div class="card">
+          <div class="panel-title"><h2>Learning journal</h2><span class="pill" id="journalStatus">summary</span></div>
+          <div class="journal-summary" id="journalSummary">
+            <div class="journal-line"><b>Worked</b><span id="workedSummary">Clean setups, good partials, strong patience...</span></div>
+            <div class="journal-line"><b>Leak</b><span id="leakedSummary">Chases, overtrading, late adds...</span></div>
+            <div class="journal-line"><b>Rule</b><span id="ruleSummary">No new trade unless trigger, invalidation, and TP are defined.</span></div>
+          </div>
+          <div class="journal journal-editor" id="journalEditor">
+            <div class="prompt"><b>What worked today?</b><textarea id="worked" placeholder="Clean setups, good partials, strong patience..."></textarea></div>
+            <div class="prompt"><b>What leaked P&L?</b><textarea id="leaked" placeholder="Chases, overtrading, late adds, loose invalidation..."></textarea></div>
+            <div class="prompt"><b>Tomorrow's rule</b><textarea id="rule" placeholder="One concrete behavior rule to carry forward."></textarea></div>
+          </div>
+          <div class="btn-row"><button class="primary" id="editJournal">Edit journal</button><button id="saveJournal">Save</button><button id="exportMarkdown">Export md</button></div>
+        </div>
+        <div class="card">
+          <div class="panel-title"><h2>Brandon Hong review</h2><span class="pill">discipline loop</span></div>
+          <div id="bhReview" class="journal"></div>
+        </div>
+        <div class="card">
+          <div class="panel-title"><h2>Live P&L calendar</h2><span class="pill" id="historyPill">Since Jun 1</span></div>
+          <div id="historyHeat"></div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const placeholder = {
+      window_ct: '12:00 AM CDT → live after running scripts/fetch_hl_pnl.py',
+      manual: {
+        label: 'Tim manual HL', fills: 573, closed_after_fees: 5906.77, fees: 122.04, open_unrealized: 277.32, net_marked_now: 6184.09,
+        by_coin: { 'xyz:SNDK': {closed: 2893.94, fees: 40.88, fills: 198}, 'xyz:MU': {closed: 2626.04, fees: 46.13, fills: 223}, 'xyz:INTC': {closed: 301.03, fees: 17.10, fills: 87}, 'LIT': {closed: 207.81, fees: 17.94, fills: 65} },
+        account_values: {perp_default: 9389.06, perp_xyz: 38512.56, spot_usdc: 79712.33, spot_total: 79712.33, total_visible: 127613.95},
+        positions: [{coin:'xyz:MU', side:'long', szi:13.142, entryPx:'1201.678', positionValue:16105.52, unrealizedPnl:313.06, liq:'1054.07'}, {coin:'xyz:SNDK', side:'long', szi:6.463, entryPx:'2289.23', positionValue:14759.55, unrealizedPnl:-35.74, liq:'2168.90'}],
+        orders: []
+      },
+      managed: {
+        label: 'Managed HL', fills: 3, closed_after_fees: -0.09, fees: 0.09, open_unrealized: -6.94, net_marked_now: -7.03,
+        by_coin: {'xyz:SKHX': {closed: 0, fees: .09, fills: 3}},
+        account_values: {perp_default: 0, perp_xyz: 5000, spot_usdc: 0, spot_total: 0, total_visible: 5000},
+        positions: [{coin:'xyz:SKHX', side:'long', szi:.511, entryPx:'1959.084', positionValue:994.15, unrealizedPnl:-6.94, liq:'1373.60'}],
+        orders: [{coin:'xyz:SKHX', orderType:'Take Profit Market', triggerPx:'2075.0', sz:'0.168', reduceOnly:true}, {coin:'xyz:SKHX', orderType:'Stop Market', triggerPx:'1908.0', sz:'0.511', reduceOnly:true}]
+      }
+    };
+    let data = placeholder;
+    let historyData = null;
+    let account = 'manual';
+    let autoRefresh = true;
+    let refreshTimer = null;
+    const fmt = n => (Number(n)||0).toLocaleString(undefined,{style:'currency',currency:'USD',maximumFractionDigits:2});
+    const num = n => (Number(n)||0).toLocaleString(undefined,{maximumFractionDigits:3});
+    const cls = n => Number(n) > 0 ? 'positive' : Number(n) < 0 ? 'negative' : 'neutral';
+    const clean = coin => String(coin||'—').replace('xyz:','');
+    async function load() {
+      try {
+        const res = await fetch('/api/latest?ts=' + Date.now());
+        if (!res.ok) throw new Error('missing live json');
+        data = await res.json();
+        document.getElementById('dataMode').textContent = 'LIVE HL';
+      } catch (e) {
+        try {
+          const res = await fetch('data/latest.json?ts=' + Date.now());
+          if (!res.ok) throw new Error('missing fallback json');
+          data = await res.json();
+          document.getElementById('dataMode').textContent = 'LIVE JSON';
+        } catch (_) {
+          document.getElementById('dataMode').textContent = 'PROTOTYPE';
+        }
+      }
+      render();
+    }
+    async function refreshHL() {
+      const btn = document.getElementById('refreshHL');
+      const prior = btn.textContent;
+      btn.textContent = 'Refreshing…';
+      btn.disabled = true;
+      document.getElementById('dataMode').textContent = 'HL SYNC';
+      try {
+        const res = await fetch('/api/refresh', { method: 'POST' });
+        const payload = await res.json();
+        if (!res.ok) throw new Error(payload.error || 'refresh failed');
+        data = payload;
+        document.getElementById('dataMode').textContent = 'LIVE HL';
+        render();
+        if (historyData) renderHistory();
+      } catch (e) {
+        document.getElementById('dataMode').textContent = 'SYNC ERROR';
+        console.error(e);
+      } finally {
+        btn.textContent = prior;
+        btn.disabled = false;
+      }
+    }
+    async function loadHistory() {
+      try {
+        const res = await fetch('data/history.json?ts=' + Date.now());
+        if (!res.ok) throw new Error('missing history');
+        historyData = await res.json();
+      } catch (e) {
+        historyData = null;
+      }
+      renderHistory();
+    }
+    function activeData() {
+      if (account === 'managed') return data.managed;
+      return data.manual;
+    }
+    function renderScore(d) {
+      const dayStatus = d.net_marked_now > 5000 ? 'Strong green day' : d.net_marked_now > 0 ? 'Green day' : 'Red / protect capital';
+      const av = d.account_values || {};
+      const totalAccount = av.total_visible || av.perp_xyz || av.perp_default || 0;
+      const accountNote = `Perp ${fmt((av.perp_default||0)+(av.perp_xyz||0))} · Spot ${fmt(av.spot_total||0)}`;
+      const metrics = [
+        ['Closed after fees', d.closed_after_fees, 'Realized only. This is the headline number.'],
+        ['Open / unrealized', d.open_unrealized, 'Current mark on still-open positions.'],
+        ['Net marked now', d.net_marked_now, 'Closed after fees + open mark.'],
+        ['Fees', -Math.abs(d.fees||0), `${d.fills||0} fills today`],
+        ['Total account value', totalAccount, accountNote],
+        ['Day status', dayStatus, 'Giveback risk check']
+      ];
+      return metrics.map(([label,val,note]) => {
+        const isText = typeof val === 'string';
+        const extra = label === 'Total account value' ? ' account' : label === 'Day status' ? ' status' : ' daily';
+        return `<article class="card metric-card${extra}" title="${note}"><div class="metric-label">${label}</div><div class="metric ${isText ? 'text neutral' : cls(val)}">${isText ? val : fmt(val)}</div><div class="metric-note">${note}</div></article>`;
+      }).join('');
+    }
+    function renderTickerTable(d) {
+      const rows = Object.entries(d.by_coin || {}).map(([coin,v]) => {
+        const net = (Number(v.closed)||0) - (Number(v.fees)||0);
+        const open = (d.positions||[]).filter(p=>p.coin===coin).reduce((a,p)=>a+Number(p.unrealizedPnl||0),0);
+        return `<tr><td><span class="ticker">${clean(coin)}</span></td><td class="num ${cls(net)}">${fmt(net)}</td><td class="num">${fmt(v.fees||0)}</td><td class="num">${v.fills||0}</td><td class="num ${cls(open)}">${fmt(open)}</td><td class="num ${cls(net+open)}">${fmt(net+open)}</td></tr>`;
+      }).join('');
+      return rows ? `<table><thead><tr><th>Ticker</th><th class="num">Closed net</th><th class="num">Fees</th><th class="num">Fills</th><th class="num">Open</th><th class="num">Total</th></tr></thead><tbody>${rows}</tbody></table>` : '<div class="empty">No fills in today\'s window.</div>';
+    }
+    function renderPositions(d) {
+      const rows = (d.positions||[]).map(p => `<tr><td><span class="ticker">${clean(p.coin)}</span></td><td><span class="side ${p.side || (p.szi>0?'long':'short')}">${p.side || (p.szi>0?'long':'short')}</span></td><td class="num">${num(p.szi)}</td><td class="num">${Number(p.entryPx||0).toFixed(2)}</td><td class="num">${fmt(p.positionValue)}</td><td class="num ${cls(p.unrealizedPnl)}">${fmt(p.unrealizedPnl)}</td><td class="num">${p.liq ? Number(p.liq).toFixed(2) : '—'}</td></tr>`).join('');
+      return rows ? `<table><thead><tr><th>Ticker</th><th>Side</th><th class="num">Size</th><th class="num">Entry</th><th class="num">Notional</th><th class="num">Open P&L</th><th class="num">Liq</th></tr></thead><tbody>${rows}</tbody></table>` : '<div class="empty">Flat. No open positions.</div>';
+    }
+    function shortRange(start, end) {
+      const trim = x => String(x||'').replace(/\s?[AP]M/g, '');
+      const suffix = /PM/.test(String(end||'')) ? ' PM' : /AM/.test(String(end||'')) ? ' AM' : '';
+      return `${trim(start)}–${trim(end)}${suffix}`;
+    }
+    function renderTimeline(d) {
+      const r = d.replay;
+      if (!r) {
+        const entries = Object.entries(d.by_coin||{}).slice(0,6).map(([coin,v]) => {
+          const net=(Number(v.closed)||0)-(Number(v.fees)||0);
+          return `<div class="trade"><div class="time">Today</div><div class="trade-main"><b>${clean(coin)}</b><span>${v.fills||0} fills · awaiting replay data</span></div><div class="value ${cls(net)}">${fmt(net)}</div></div>`;
+        }).join('');
+        return entries || '<div class="empty">No trade activity yet.</div>';
+      }
+      const tiles = [
+        ['Day grade', r.grade || '—', 'neutral'],
+        ['Leak score', r.leak_score || '—', r.leak_score === 'High' ? 'negative' : r.leak_score === 'Low' ? 'positive' : 'neutral'],
+        ['Peak realized', fmt(r.peak_realized || 0), 'positive'],
+        ['Giveback', fmt(-Math.abs(r.giveback_from_peak || 0)), (r.giveback_from_peak||0) > 0 ? 'negative' : 'neutral']
+      ].map(([label,value,c]) => `<div class="replay-tile"><span>${label}</span><b class="${c}">${value}</b></div>`).join('');
+      const scores = r.scores || {};
+      const scoreStrip = Object.entries({Money:scores.made_money, Peak:scores.protected_peak, Setup:scores.setup_quality, Clicks:scores.overtrading_control, Fees:scores.fee_control})
+        .map(([k,v]) => `<div class="score"><span>${k}</span><b>${v||'—'}</b></div>`).join('');
+      const events = (r.events||[]).slice(0,6).map(e => `<div class="trade"><div class="time">${e.time||''}</div><div class="trade-main"><b>${e.kind||'event'}</b><span>${e.text||''}</span></div></div>`).join('');
+      const clusters = (r.clusters||[]).slice(0,4).map(c => `<tr><td><span class="ticker">${clean(c.coin)}</span></td><td class="num ${cls(c.net)}">${fmt(c.net)}</td><td class="num">${fmt(c.fees)}</td><td class="num">${c.fills}</td><td>${shortRange(c.start, c.end)}</td></tr>`).join('');
+      const clusterTable = clusters ? `<table class="cluster-table"><thead><tr><th>Cluster</th><th class="num">Net</th><th class="num">Fees</th><th class="num">Fills</th><th>Time</th></tr></thead><tbody>${clusters}</tbody></table>` : '';
+      return `<div class="replay-left"><div class="replay-grid">${tiles}</div><div class="coach">${r.coach_read || ''}</div><div class="score-strip">${scoreStrip}</div></div><div class="replay-right">${events}${clusterTable}</div>`;
+    }
+    function renderReview(d) {
+      const sorted = Object.entries(d.by_coin||{}).map(([coin,v])=>[coin,(Number(v.closed)||0)-(Number(v.fees)||0)]).sort((a,b)=>b[1]-a[1]);
+      const best = sorted[0]; const worst = sorted[sorted.length-1];
+      return `<div class="prompt"><b>Best system trade candidate</b>${best ? `${clean(best[0])} at ${fmt(best[1])} net closed.` : 'No closed trades.'}</div><div class="prompt"><b>Biggest leak to review</b>${worst ? `${clean(worst[0])} at ${fmt(worst[1])} net closed.` : 'No leak detected yet.'}</div><div class="prompt"><b>Next-time rule</b>Protect the green day: no new trade unless trigger, invalidation, and TP are defined before entry.</div>`;
+    }
+    function renderHistory() {
+      const el = document.getElementById('historyHeat');
+      const pill = document.getElementById('historyPill');
+      if (!historyData || !(historyData.days||[]).length) {
+        el.innerHTML = '<div class="empty">No backfilled history yet. Run scripts/import_notion_history.py.</div>';
+        if (pill) pill.textContent = 'empty';
+        return;
+      }
+      const today = new Date().toISOString().slice(0,10);
+      const sourceDays = [...(historyData.days||[])].filter(d => d.date && d.realized_after_fees !== null && d.realized_after_fees !== undefined);
+      const byDate = Object.fromEntries(sourceDays.map(d => [d.date, {...d}]));
+      if (data && data.manual) {
+        byDate[today] = {
+          ...(byDate[today] || {}), date: today, result: (data.manual.closed_after_fees||0) > 0 ? 'Win' : (data.manual.closed_after_fees||0) < 0 ? 'Loss' : 'Flat',
+          realized_after_fees: data.manual.closed_after_fees, fees: data.manual.fees, fills: data.manual.fills, source: 'live'
+        };
+      }
+      const days = Object.values(byDate).sort((a,b) => a.date.localeCompare(b.date));
+      const totals = {
+        days: days.length,
+        realized_after_fees: days.reduce((a,d)=>a+Number(d.realized_after_fees||0),0),
+        fees: days.reduce((a,d)=>a+Number(d.fees||0),0),
+        wins: days.filter(d=>Number(d.realized_after_fees||0)>0).length,
+        losses: days.filter(d=>Number(d.realized_after_fees||0)<0).length
+      };
+      if (pill) pill.textContent = `${days.length} days · live`;
+      const startDate = (historyData.start_date || days[0].date || today);
+      const [yy, mm] = startDate.split('-').map(Number);
+      const monthStart = new Date(Date.UTC(yy, mm-1, 1));
+      const monthEnd = new Date(Date.UTC(yy, mm, 0));
+      const firstDow = monthStart.getUTCDay();
+      const totalCells = Math.ceil((firstDow + monthEnd.getUTCDate()) / 7) * 7;
+      const dows = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(d => `<div class="dow">${d}</div>`).join('');
+      let cells = '';
+      for (let i=0; i<totalCells; i++) {
+        const dayNum = i - firstDow + 1;
+        if (dayNum < 1 || dayNum > monthEnd.getUTCDate()) { cells += '<div class="cal-day blank"></div>'; continue; }
+        const iso = `${yy}-${String(mm).padStart(2,'0')}-${String(dayNum).padStart(2,'0')}`;
+        const rec = byDate[iso];
+        const pnl = rec ? Number(rec.realized_after_fees||0) : null;
+        const state = pnl === null ? '' : pnl >= 0 ? 'win' : 'loss';
+        cells += `<div class="cal-day ${state}" title="${iso}${rec?.source==='live'?' · live':''}"><div class="cal-top"><span>${dayNum}</span><span>${rec?.source==='live'?'LIVE':''}</span></div><div><div class="cal-pnl ${pnl===null?'neutral':cls(pnl)}">${pnl===null?'—':fmt(pnl)}</div><div class="cal-meta">${rec ? `${rec.fills||0} fills` : 'no data'}</div></div></div>`;
+      }
+      const summary = `<div class="history-summary">
+        <div class="mini"><span class="label">Since Jun 1</span><b>${totals.days}</b></div>
+        <div class="mini"><span class="label">Net realized</span><b class="${cls(totals.realized_after_fees)}">${fmt(totals.realized_after_fees)}</b></div>
+        <div class="mini"><span class="label">Fees</span><b class="negative">${fmt(-Math.abs(totals.fees||0))}</b></div>
+        <div class="mini"><span class="label">Win/Loss</span><b>${totals.wins}/${totals.losses}</b></div>
+      </div>`;
+      el.innerHTML = summary + `<div class="calendar-grid">${dows}${cells}</div>`;
+    }
+    function renderCompare() {
+      const m=data.manual, g=data.managed;
+      document.getElementById('scoreGrid').innerHTML = [m,g].map(d => `<article class="card"><div class="metric-label">${d.label||'Account'}</div><div class="metric ${cls(d.net_marked_now)}">${fmt(d.net_marked_now)}</div><div class="metric-note">Closed ${fmt(d.closed_after_fees)} · Open ${fmt(d.open_unrealized)} · Account ${fmt((d.account_values||{}).total_visible||0)}</div></article>`).join('') + `<article class="card"><div class="metric-label">Combined marked</div><div class="metric ${cls((m.net_marked_now||0)+(g.net_marked_now||0))}">${fmt((m.net_marked_now||0)+(g.net_marked_now||0))}</div><div class="metric-note">Manual + managed, labeled separately below.</div></article>`;
+      document.getElementById('tickerTable').innerHTML = '<div class="empty">Use Tim manual or Managed tab for ticker-level detail.</div>';
+      document.getElementById('positionsTable').innerHTML = renderPositions({positions:[...(m.positions||[]),...(g.positions||[])]});
+      document.getElementById('timeline').innerHTML = '<div class="empty">Comparison view keeps accounts separate. Pick an account for trade timeline.</div>';
+      document.getElementById('bhReview').innerHTML = '<div class="prompt"><b>Compare</b>Manual account is for Tim discretionary review. Managed account is for automated account protection and small-position status.</div>';
+    }
+    function render() {
+      document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.account === account));
+      document.getElementById('lastRefresh').textContent = new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+      document.getElementById('windowText').textContent = data.window_ct || 'Today CT';
+      if (account === 'compare') { renderCompare(); return; }
+      const d = activeData();
+      document.getElementById('scoreGrid').innerHTML = renderScore(d);
+      document.getElementById('tickerTable').innerHTML = renderTickerTable(d);
+      document.getElementById('positionsTable').innerHTML = renderPositions(d);
+      document.getElementById('timeline').innerHTML = renderTimeline(d);
+      document.getElementById('bhReview').innerHTML = renderReview(d);
+      document.getElementById('fillPill').textContent = `${d.fills||0} fills`;
+      document.getElementById('riskPill').textContent = (d.positions||[]).length ? `${(d.positions||[]).length} open` : 'flat';
+      if (historyData) renderHistory();
+    }
+    document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => { account = t.dataset.account; render(); }));
+    const todayKey = 'journal-' + new Date().toISOString().slice(0,10);
+    function updateJournalSummary(){
+      const short = (v,fallback) => (v||'').trim() || fallback;
+      workedSummary.textContent = short(worked.value, 'Clean setups, good partials, strong patience...');
+      leakedSummary.textContent = short(leaked.value, 'Chases, overtrading, late adds...');
+      ruleSummary.textContent = short(rule.value, 'No new trade unless trigger, invalidation, and TP are defined.');
+    }
+    function loadJournal(){ const j=JSON.parse(localStorage.getItem(todayKey)||'{}'); ['worked','leaked','rule'].forEach(id=>document.getElementById(id).value=j[id]||''); updateJournalSummary(); }
+    document.getElementById('editJournal').onclick = () => { journalEditor.classList.toggle('open'); editJournal.textContent = journalEditor.classList.contains('open') ? 'Collapse' : 'Edit journal'; journalStatus.textContent = journalEditor.classList.contains('open') ? 'editing' : 'summary'; };
+    ['worked','leaked','rule'].forEach(id => document.getElementById(id).addEventListener('input', updateJournalSummary));
+    document.getElementById('saveJournal').onclick = () => { const j={worked:worked.value, leaked:leaked.value, rule:rule.value, savedAt:new Date().toISOString()}; localStorage.setItem(todayKey, JSON.stringify(j)); updateJournalSummary(); journalStatus.textContent='saved'; };
+    document.getElementById('exportMarkdown').onclick = () => {
+      const d=activeData(); const md=`# Trading Journal ${new Date().toLocaleDateString()}\n\n- Closed after fees: ${fmt(d.closed_after_fees)}\n- Open/unrealized: ${fmt(d.open_unrealized)}\n- Net marked now: ${fmt(d.net_marked_now)}\n\n## What worked\n${worked.value}\n\n## What leaked\n${leaked.value}\n\n## Tomorrow rule\n${rule.value}\n`;
+      navigator.clipboard.writeText(md); journalStatus.textContent='copied md';
+    };
+    document.getElementById('refreshHL').onclick = refreshHL;
+    document.getElementById('toggleAuto').onclick = () => {
+      autoRefresh = !autoRefresh;
+      document.getElementById('toggleAuto').textContent = `Auto: ${autoRefresh ? 'on' : 'off'}`;
+      if (autoRefresh) startAutoRefresh();
+      else if (refreshTimer) clearInterval(refreshTimer);
+    };
+    function startAutoRefresh() {
+      if (refreshTimer) clearInterval(refreshTimer);
+      refreshTimer = setInterval(() => { if (autoRefresh) refreshHL(); }, 60000);
+    }
+    loadJournal(); load(); loadHistory(); startAutoRefresh();
+  </script>
+</body>
+</html>
