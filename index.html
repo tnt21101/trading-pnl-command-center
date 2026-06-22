@@ -295,8 +295,8 @@
     function renderScore(d) {
       const dayStatus = d.net_marked_now > 5000 ? 'Strong green day' : d.net_marked_now > 0 ? 'Green day' : 'Red / protect capital';
       const av = d.account_values || {};
-      const totalAccount = av.total_visible || av.perp_xyz || av.perp_default || 0;
-      const accountNote = `Perp ${fmt((av.perp_default||0)+(av.perp_xyz||0))} · Spot ${fmt(av.spot_total||0)}`;
+      const totalAccount = av.total_visible || av.spot_total || av.perp_total || av.perp_xyz || av.perp_default || 0;
+      const accountNote = `USDC ${fmt(av.spot_usdc||av.spot_total||0)} · Held margin ${fmt(av.spot_hold_total||((av.perp_default||0)+(av.perp_xyz||0)))} · Avail ${fmt(av.spot_available_after_maintenance||0)}`;
       const metrics = [
         ['Closed after fees', d.closed_after_fees, 'Realized only. This is the headline number.'],
         ['Open / unrealized', d.open_unrealized, 'Current mark on still-open positions.'],

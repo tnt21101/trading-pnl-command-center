@@ -274,7 +274,14 @@ def fetch_account(label: str, address: str, start_ms: int, end_ms: int):
         by_coin[coin]["volume"] += abs(safe_float(fill.get("sz")) * safe_float(fill.get("px")))
 
     positions = []
-    account_values = {"perp_default": 0.0, "perp_xyz": 0.0, "spot_usdc": 0.0, "spot_total": 0.0}
+    account_values = {
+        "perp_default": 0.0,
+        "perp_xyz": 0.0,
+        "spot_usdc": 0.0,
+        "spot_total": 0.0,
+        "spot_hold_total": 0.0,
+        "spot_available_after_maintenance": 0.0,
+    }
     margin_summaries = {}
     spot_balances = []
     for dex in [None, "xyz"]:
@@ -313,13 +320,26 @@ def fetch_account(label: str, address: str, start_ms: int, end_ms: int):
         spot_state = {}
     for balance in spot_state.get("balances", []) if isinstance(spot_state, dict) else []:
         total = safe_float(balance.get("total"))
+        hold = safe_float(balance.get("hold"))
         if total <= 0:
             continue
         coin = balance.get("coin")
-        spot_balances.append({"coin": coin, "total": total, "hold": safe_float(balance.get("hold"))})
+        spot_balances.append({"coin": coin, "total": total, "hold": hold})
         account_values["spot_total"] += total
+        account_values["spot_hold_total"] += hold
         if coin == "USDC":
             account_values["spot_usdc"] += total
+
+    # In Hyperliquid unified/spot-collateral mode, spot balances already include
+    # USDC held as isolated perp margin (`hold`). Adding marginSummary.accountValue
+    # on top double-counts that same collateral. Use spot total as the visible
+    # wallet/account equity when spot collateral exists; fall back to perp margin
+    # summaries only for non-unified/perp-only accounts.
+    token_available = spot_state.get("tokenToAvailableAfterMaintenance", []) if isinstance(spot_state, dict) else []
+    for token_id, available in token_available:
+        if token_id == 0:
+            account_values["spot_available_after_maintenance"] = safe_float(available)
+            break
 
     orders = []
     for dex in [None, "xyz"]:
@@ -347,9 +367,9 @@ def fetch_account(label: str, address: str, start_ms: int, end_ms: int):
 
     open_unrealized = sum(p["unrealizedPnl"] for p in positions)
     replay = analyze_replay(fills, open_unrealized)
-    account_values["total_visible"] = (
-        account_values["perp_default"] + account_values["perp_xyz"] + account_values["spot_total"]
-    )
+    perp_total = account_values["perp_default"] + account_values["perp_xyz"]
+    account_values["perp_total"] = perp_total
+    account_values["total_visible"] = account_values["spot_total"] if account_values["spot_total"] > 0 else perp_total
     return {
         "label": label,
         "address": main,
