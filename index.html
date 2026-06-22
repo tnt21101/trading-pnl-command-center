@@ -310,8 +310,9 @@
       return rows ? `<table><thead><tr><th>Ticker</th><th class="num">Closed net</th><th class="num">Fees</th><th class="num">Fills</th><th class="num">Open</th><th class="num">Total</th></tr></thead><tbody>${rows}</tbody></table>` : '<div class="empty">No fills in today\'s window.</div>';
     }
     function renderPositions(d) {
-      const rows = (d.positions||[]).map(p => `<tr><td><span class="ticker">${clean(p.coin)}</span></td><td><span class="side ${p.side || (p.szi>0?'long':'short')}">${p.side || (p.szi>0?'long':'short')}</span></td><td class="num">${num(p.szi)}</td><td class="num">${Number(p.entryPx||0).toFixed(2)}</td><td class="num">${fmt(p.positionValue)}</td><td class="num ${cls(p.unrealizedPnl)}">${fmt(p.unrealizedPnl)}</td><td class="num">${p.liq ? Number(p.liq).toFixed(2) : '—'}</td></tr>`).join('');
-      return rows ? `<table><thead><tr><th>Ticker</th><th>Side</th><th class="num">Size</th><th class="num">Entry</th><th class="num">Notional</th><th class="num">Open P&L</th><th class="num">Liq</th></tr></thead><tbody>${rows}</tbody></table>` : '<div class="empty">Flat. No open positions.</div>';
+      const currentPx = p => Number(p.currentPx || (Math.abs(Number(p.szi||0)) ? Number(p.positionValue||0) / Math.abs(Number(p.szi||0)) : 0));
+      const rows = (d.positions||[]).map(p => `<tr><td><span class="ticker">${clean(p.coin)}</span></td><td><span class="side ${p.side || (p.szi>0?'long':'short')}">${p.side || (p.szi>0?'long':'short')}</span></td><td class="num">${num(p.szi)}</td><td class="num">${Number(p.entryPx||0).toFixed(2)}</td><td class="num">${currentPx(p) ? currentPx(p).toFixed(2) : '—'}</td><td class="num">${fmt(p.positionValue)}</td><td class="num ${cls(p.unrealizedPnl)}">${fmt(p.unrealizedPnl)}</td><td class="num">${p.liq ? Number(p.liq).toFixed(2) : '—'}</td></tr>`).join('');
+      return rows ? `<table><thead><tr><th>Ticker</th><th>Side</th><th class="num">Size</th><th class="num">Entry</th><th class="num">Current</th><th class="num">Notional</th><th class="num">Open P&L</th><th class="num">Liq</th></tr></thead><tbody>${rows}</tbody></table>` : '<div class="empty">Flat. No open positions.</div>';
     }
     function shortRange(start, end) {
       const trim = x => String(x||'').replace(/\s?[AP]M/g, '');

@@ -291,13 +291,15 @@ def fetch_account(label: str, address: str, start_ms: int, end_ms: int):
             szi = safe_float(pos.get("szi"))
             if abs(szi) <= 0:
                 continue
+            position_value = safe_float(pos.get("positionValue"))
             positions.append({
                 "dex": dex or "default",
                 "coin": pos.get("coin"),
                 "side": "long" if szi > 0 else "short",
                 "szi": szi,
                 "entryPx": pos.get("entryPx"),
-                "positionValue": safe_float(pos.get("positionValue")),
+                "currentPx": position_value / abs(szi) if szi else 0.0,
+                "positionValue": position_value,
                 "unrealizedPnl": safe_float(pos.get("unrealizedPnl")),
                 "liq": pos.get("liquidationPx"),
                 "lev": pos.get("leverage"),
