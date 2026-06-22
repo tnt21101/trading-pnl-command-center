@@ -88,6 +88,12 @@
     .journal { display:grid; gap: 7px; }
     .prompt { background: rgba(255,255,255,.035); border: 1px solid var(--line); border-radius: 13px; padding: 8px; font-size:13px; line-height:1.3; }
     .prompt b { display:block; font-size: 10px; letter-spacing:.08em; text-transform:uppercase; color: var(--muted); margin-bottom: 5px; }
+    .insight-copy { color:#dfeaff; font-size:13px; line-height:1.45; margin:0; }
+    .watch-list { display:grid; gap:7px; }
+    .watch-item { border:1px solid var(--line); border-radius:12px; padding:8px; background:rgba(255,255,255,.032); }
+    .watch-item b { display:block; font-size:11px; color:var(--ink); margin-bottom:3px; }
+    .watch-item span { display:block; color:var(--muted); font-size:12px; line-height:1.3; }
+    .news-headline { color:var(--muted); font-size:11px; line-height:1.3; border-top:1px solid rgba(158,176,207,.10); padding-top:6px; margin-top:2px; }
     textarea { width: 100%; min-height: 58px; resize: vertical; color: var(--ink); background: rgba(0,0,0,.22); border: 1px solid var(--line); border-radius: 12px; padding: 9px; font: 500 13px/1.35 var(--sans); outline: none; }
     textarea:focus { border-color: rgba(57,217,138,.55); box-shadow: 0 0 0 3px rgba(57,217,138,.08); }
     .btn-row { display:flex; gap:7px; flex-wrap:wrap; margin-top: 8px; }
@@ -190,8 +196,12 @@
           <div class="btn-row"><button class="primary" id="editJournal">Edit journal</button><button id="saveJournal">Save</button><button id="exportMarkdown">Export md</button></div>
         </div>
         <div class="card">
-          <div class="panel-title"><h2>Brandon Hong review</h2><span class="pill">discipline loop</span></div>
+          <div class="panel-title"><h2>BH Insights</h2><span class="pill">trade feedback</span></div>
           <div id="bhReview" class="journal"></div>
+        </div>
+        <div class="card">
+          <div class="panel-title"><h2>What to watch tomorrow</h2><span class="pill" id="newsPill">latest news</span></div>
+          <div id="tomorrowWatch" class="watch-list"></div>
         </div>
         <div class="card">
           <div class="panel-title"><h2>Live P&L calendar</h2><span class="pill" id="historyPill">Since Jun 1</span></div>
@@ -340,9 +350,29 @@
       return `<div class="replay-left"><div class="replay-grid">${tiles}</div><div class="coach">${r.coach_read || ''}</div><div class="score-strip">${scoreStrip}</div></div>`;
     }
     function renderReview(d) {
-      const sorted = Object.entries(d.by_coin||{}).map(([coin,v])=>[coin,(Number(v.closed)||0)-(Number(v.fees)||0)]).sort((a,b)=>b[1]-a[1]);
-      const best = sorted[0]; const worst = sorted[sorted.length-1];
-      return `<div class="prompt"><b>Best system trade candidate</b>${best ? `${clean(best[0])} at ${fmt(best[1])} net closed.` : 'No closed trades.'}</div><div class="prompt"><b>Biggest leak to review</b>${worst ? `${clean(worst[0])} at ${fmt(worst[1])} net closed.` : 'No leak detected yet.'}</div><div class="prompt"><b>Next-time rule</b>Protect the green day: no new trade unless trigger, invalidation, and TP are defined before entry.</div>`;
+      const sorted = Object.entries(d.by_coin||{}).map(([coin,v])=>[coin,(Number(v.closed)||0)-(Number(v.fees)||0), Number(v.fills||0)]).sort((a,b)=>b[1]-a[1]);
+      const best = sorted.find(x => x[1] > 0);
+      const worst = sorted[sorted.length-1];
+      const r = d.replay || {};
+      const openRisk = (d.positions||[]).length ? ` You still have ${(d.positions||[]).length} open position${(d.positions||[]).length === 1 ? '' : 's'}, so tomorrow starts with risk already on the board.` : ' You are flat, so tomorrow can start from a clean read instead of carryover risk.';
+      const leak = worst && worst[1] < 0 ? `The main leak was ${clean(worst[0])} at ${fmt(worst[1])}; review whether that was a failed setup, late entry, or too many clicks.` : 'There was no major red ticker leak in the closed book.';
+      const insight = best ? `Best payer was ${clean(best[0])} at ${fmt(best[1])} net, which says the day rewarded focused continuation rather than forcing every ticker. ${leak} Peak protection looks ${String(r.leak_score || 'clean').toLowerCase()} with marked giveback at ${fmt(-Math.abs(r.giveback_from_peak || 0))}. For the next session, keep the Brandon filter simple: only take trades with a defined trigger, invalidation, and first partial before entry.${openRisk}` : `No closed trades to grade yet. Use tomorrow to wait for an obvious Brandon-style trigger instead of manufacturing action.${openRisk}`;
+      return `<p class="insight-copy">${insight}</p>`;
+    }
+    function renderTomorrowWatch(d) {
+      const news = data.market_news || {};
+      const items = news.items || [];
+      const tickers = [...new Set([...(d.positions||[]).map(p=>clean(p.coin)), ...Object.keys(d.by_coin||{}).map(clean)])].filter(Boolean).slice(0,4);
+      const leader = Object.entries(d.by_coin||{}).map(([coin,v])=>[clean(coin),(Number(v.closed)||0)-(Number(v.fees)||0)]).sort((a,b)=>b[1]-a[1]).find(x => x[1] > 0);
+      const open = (d.positions||[]).map(p => `${clean(p.coin)} ${p.side || (p.szi>0?'long':'short')} near ${Number(p.currentPx || 0).toFixed(2)}`).join(', ');
+      const watchItems = [
+        ['Carryover risk', open ? `Watch ${open}. If price accepts below the entry/reclaim area, protect the day before looking for fresh adds.` : 'No open positions — focus first on market direction and only take clean reclaim/retest setups.'],
+        ['Leadership check', leader ? `${leader[0]} was today’s best payer. Tomorrow, check whether it still has relative strength or if rotation moves to another semi/AI name.` : 'No clear payer yet; wait for one ticker to show leadership before sizing up.'],
+        ['News/catalyst scan', items.length ? `Latest headlines are feeding the watchlist below. Treat news as context only; require price acceptance and a clean invalidation before entry.` : 'News feed unavailable right now; rely on levels, relative strength, and the open-position table until refreshed.']
+      ];
+      const headlines = items.slice(0,3).map(n => `<div class="news-headline">${n.title}${n.source ? ` · ${n.source}` : ''}</div>`).join('');
+      if (document.getElementById('newsPill')) document.getElementById('newsPill').textContent = items.length ? `${items.length} headlines` : 'news unavailable';
+      return watchItems.map(([title,text]) => `<div class="watch-item"><b>${title}</b><span>${text}</span></div>`).join('') + headlines;
     }
     function renderHistory() {
       const el = document.getElementById('historyHeat');
@@ -406,7 +436,8 @@
       document.getElementById('tickerTable').innerHTML = '<div class="empty">Use Tim manual or Managed tab for ticker-level detail.</div>';
       document.getElementById('positionsTable').innerHTML = renderPositions({positions:[...(m.positions||[]),...(g.positions||[])]});
       document.getElementById('timeline').innerHTML = '<div class="empty">Comparison view keeps accounts separate. Pick an account for trade timeline.</div>';
-      document.getElementById('bhReview').innerHTML = '<div class="prompt"><b>Compare</b>Manual account is for Tim discretionary review. Managed account is for automated account protection and small-position status.</div>';
+      document.getElementById('bhReview').innerHTML = '<p class="insight-copy">Manual and managed accounts are intentionally separated. Use this view for combined risk only; pick an account tab for clean BH feedback on that account’s actual trades.</p>';
+      document.getElementById('tomorrowWatch').innerHTML = renderTomorrowWatch({positions:[...(m.positions||[]),...(g.positions||[])], by_coin:{...(m.by_coin||{}), ...(g.by_coin||{})}});
       renderHistory();
     }
     function render() {
@@ -420,6 +451,7 @@
       document.getElementById('positionsTable').innerHTML = renderPositions(d);
       document.getElementById('timeline').innerHTML = renderTimeline(d);
       document.getElementById('bhReview').innerHTML = renderReview(d);
+      document.getElementById('tomorrowWatch').innerHTML = renderTomorrowWatch(d);
       document.getElementById('fillPill').textContent = `${d.fills||0} fills`;
       document.getElementById('riskPill').textContent = (d.positions||[]).length ? `${(d.positions||[]).length} open` : 'flat';
       if (historyData) renderHistory();

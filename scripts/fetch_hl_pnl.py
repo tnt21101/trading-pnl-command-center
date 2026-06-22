@@ -6,7 +6,9 @@ Read-only: uses Hyperliquid Info API only. No private keys required.
 import datetime as dt
 import json
 import os
+import urllib.parse
 import urllib.request
+import xml.etree.ElementTree as ET
 from collections import defaultdict
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -369,6 +371,37 @@ def fetch_account(label: str, address: str, start_ms: int, end_ms: int):
     }
 
 
+def fetch_market_news(limit: int = 7):
+    """Fetch lightweight public market headlines for tomorrow-watch context."""
+    query = "MU OR Micron OR SNDK OR SanDisk OR semiconductor stocks OR Nasdaq futures when:1d"
+    url = "https://news.google.com/rss/search?" + urllib.parse.urlencode({
+        "q": query,
+        "hl": "en-US",
+        "gl": "US",
+        "ceid": "US:en",
+    })
+    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            raw = resp.read()
+    except Exception as exc:
+        return {"source": "Google News", "ok": False, "error": str(exc), "items": []}
+    root = ET.fromstring(raw)
+    items = []
+    for item in root.findall("./channel/item")[:limit]:
+        title = (item.findtext("title") or "").strip()
+        source = item.findtext("source") or ""
+        # Google News titles often append " - Publisher"; keep the cleaner left side.
+        clean_title = title.rsplit(" - ", 1)[0] if " - " in title else title
+        items.append({
+            "title": clean_title,
+            "source": source.strip(),
+            "link": item.findtext("link") or "",
+            "published": item.findtext("pubDate") or "",
+        })
+    return {"source": "Google News", "ok": True, "query": query, "items": items}
+
+
 def main():
     now = dt.datetime.now(CT)
     start = now.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -385,6 +418,7 @@ def main():
         "generated_at": now.isoformat(),
         "window_ct": f"{start.strftime('%Y-%m-%d %I:%M %p %Z')} → {now.strftime('%I:%M %p %Z')}",
         "month_start_date": month_start.date().isoformat(),
+        "market_news": fetch_market_news(),
         "manual": fetch_account("Tim manual HL", MANUAL, start_ms, end_ms),
         "managed": managed,
     }
