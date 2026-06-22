@@ -196,7 +196,7 @@
           <div class="btn-row"><button class="primary" id="editJournal">Edit journal</button><button id="saveJournal">Save</button><button id="exportMarkdown">Export md</button></div>
         </div>
         <div class="card">
-          <div class="panel-title"><h2>BH Insights</h2><span class="pill">trade feedback</span></div>
+          <div class="panel-title"><h2>BH Insights</h2><span class="pill">market update voice</span></div>
           <div id="bhReview" class="journal"></div>
         </div>
         <div class="card">
@@ -354,9 +354,21 @@
       const best = sorted.find(x => x[1] > 0);
       const worst = sorted[sorted.length-1];
       const r = d.replay || {};
-      const openRisk = (d.positions||[]).length ? ` You still have ${(d.positions||[]).length} open position${(d.positions||[]).length === 1 ? '' : 's'}, so tomorrow starts with risk already on the board.` : ' You are flat, so tomorrow can start from a clean read instead of carryover risk.';
-      const leak = worst && worst[1] < 0 ? `The main leak was ${clean(worst[0])} at ${fmt(worst[1])}; review whether that was a failed setup, late entry, or too many clicks.` : 'There was no major red ticker leak in the closed book.';
-      const insight = best ? `Best payer was ${clean(best[0])} at ${fmt(best[1])} net, which says the day rewarded focused continuation rather than forcing every ticker. ${leak} Peak protection looks ${String(r.leak_score || 'clean').toLowerCase()} with marked giveback at ${fmt(-Math.abs(r.giveback_from_peak || 0))}. For the next session, keep the Brandon filter simple: only take trades with a defined trigger, invalidation, and first partial before entry.${openRisk}` : `No closed trades to grade yet. Use tomorrow to wait for an obvious Brandon-style trigger instead of manufacturing action.${openRisk}`;
+      const positions = d.positions || [];
+      const openNames = positions.map(p=>clean(p.coin)).filter(Boolean);
+      const openFocus = openNames.length ? [...new Set(openNames)].slice(0,3).join(' / ') : '';
+      const loserLine = worst && worst[1] < 0
+        ? `${clean(worst[0])} was the obvious leak at ${fmt(worst[1])}, which is usually what happens when the trade stops being a clean setup and turns into managing noise.`
+        : `No real closed-book disaster today, which is exactly what you want when the market is giving you clean leaders.`;
+      const peakLine = (r.giveback_from_peak||0) > 0
+        ? `Peak giveback was ${fmt(-Math.abs(r.giveback_from_peak||0))}, so the only real critique is that the book gave back more than it needed to after the high-water mark.`
+        : `Peak protection was clean with no meaningful giveback from the realized high-water mark.`;
+      const riskLine = positions.length
+        ? `Still exposed to ${openFocus}, so no changes in focus until ${positions.length === 1 ? 'it either continues' : 'these either continue'} to chad higher or lose${positions.length === 1 ? 's' : ''} the reclaim/structure that made ${positions.length === 1 ? 'it' : 'them'} worth holding.`
+        : `You are flat now, so this is just a waiting game until clean triggers show up again.`;
+      const insight = best
+        ? `${clean(best[0])} continues to be the main payer today at ${fmt(best[1])} net. This is the kind of tape where the focus should stay on what is actually leading instead of rotating into random low-quality setups for the sake of activity. ${loserLine} ${peakLine} ${riskLine} Reaction over prediction remains the system: wait for acceptance, reclaim, or a clean retest, then define invalidation before thinking about upside.`
+        : `Nothing meaningful to grade in the closed book yet. This is not the environment to manufacture trades just because the dashboard is open. ${riskLine} Reaction over prediction remains the system: wait for an obvious reclaim, acceptance, or failed-breakout setup, otherwise sit out.`;
       return `<p class="insight-copy">${insight}</p>`;
     }
     function renderTomorrowWatch(d) {
