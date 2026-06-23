@@ -197,9 +197,15 @@
     </section>
 
     <section class="section analysis-layout">
-      <div class="card panel-replay">
-        <div class="panel-title"><h2><span class="panel-icon">🎞️</span>Replay the day + leak detector</h2><span class="pill">flight recorder</span></div>
-        <div class="timeline" id="timeline"></div>
+      <div class="side-stack">
+        <div class="card panel-replay">
+          <div class="panel-title"><h2><span class="panel-icon">🎞️</span>Replay the day + leak detector</h2><span class="pill">flight recorder</span></div>
+          <div class="timeline" id="timeline"></div>
+        </div>
+        <div class="card panel-watch">
+          <div class="panel-title"><h2><span class="panel-icon">🔭</span>What to watch tomorrow</h2><span class="pill" id="newsPill">latest news</span></div>
+          <div id="tomorrowWatch" class="watch-list"></div>
+        </div>
       </div>
       <div class="side-stack">
         <div class="card panel-journal">
@@ -219,10 +225,6 @@
         <div class="card panel-insights">
           <div class="panel-title"><h2><span class="panel-icon">🧠</span>BH Insights</h2><span class="pill">market update voice</span></div>
           <div id="bhReview" class="journal"></div>
-        </div>
-        <div class="card panel-watch">
-          <div class="panel-title"><h2><span class="panel-icon">🔭</span>What to watch tomorrow</h2><span class="pill" id="newsPill">latest news</span></div>
-          <div id="tomorrowWatch" class="watch-list"></div>
         </div>
         <div class="card panel-calendar">
           <div class="panel-title"><h2><span class="panel-icon">📅</span>Live P&L calendar</h2><span class="pill" id="historyPill">Since Jun 1</span></div>
