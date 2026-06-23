@@ -133,9 +133,7 @@
     .replay-tile span { display:block; max-width:100%; overflow:hidden; text-overflow:ellipsis; color:var(--muted); font-size: 13px; text-transform:uppercase; letter-spacing:.04em; white-space:nowrap; }
     .replay-tile b { display:block; max-width:100%; overflow:hidden; text-overflow:ellipsis; margin-top:2px; font:950 clamp(15px, 1.35vw, 18px)/1 var(--mono); white-space:nowrap; letter-spacing:-.05em; }
     .coach { justify-self:start; width:fit-content; max-width:100%; border:1px solid rgba(57,217,138,.22); background:rgba(57,217,138,.07); border-radius:12px; padding:8px 10px; color:#d9ffe9; font-size: 14px; line-height:1.28; }
-    .score-strip { display:grid; grid-template-columns: repeat(5, 1fr); gap:5px; }
-    .score { border:1px solid var(--line); border-radius:999px; padding:5px 7px; display:flex; justify-content:space-between; gap:5px; font-size: 12px; color:var(--muted); }
-    .score b { color:var(--ink); font-family:var(--mono); }
+
     .cluster-table { margin-top:2px; }
     .journal-summary { display:grid; gap:7px; }
     .journal-line { display:grid; grid-template-columns: 98px 1fr; gap:8px; align-items:center; border:1px solid var(--line); border-radius:12px; padding:7px 8px; background:rgba(255,255,255,.032); font-size: 14px; color:var(--muted); }
@@ -385,10 +383,7 @@
         ['📈 Peak', fmt(r.peak_realized || 0), 'positive', 'peak'],
         ['🛡️ Giveback', fmt(-Math.abs(r.giveback_from_peak || 0)), (r.giveback_from_peak||0) > 0 ? 'negative' : 'neutral', 'giveback']
       ].map(([label,value,c,tone]) => `<div class="replay-tile ${tone}"><span>${label}</span><b class="${c}">${value}</b></div>`).join('');
-      const scores = r.scores || {};
-      const scoreStrip = Object.entries({Money:scores.made_money, Peak:scores.protected_peak, Setup:scores.setup_quality, Clicks:scores.overtrading_control, Fees:scores.fee_control})
-        .map(([k,v]) => `<div class="score"><span>${k}</span><b>${v||'—'}</b></div>`).join('');
-      return `<div class="replay-left"><div class="replay-grid">${tiles}</div><div class="coach">${r.coach_read || ''}</div><div class="score-strip">${scoreStrip}</div></div>`;
+      return `<div class="replay-left"><div class="replay-grid">${tiles}</div><div class="coach">${r.coach_read || ''}</div></div>`;
     }
     function renderReview(d) {
       const sorted = Object.entries(d.by_coin||{}).map(([coin,v])=>[coin,(Number(v.closed)||0)-(Number(v.fees)||0), Number(v.fills||0)]).sort((a,b)=>b[1]-a[1]);
