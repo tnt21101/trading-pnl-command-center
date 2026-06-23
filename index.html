@@ -56,7 +56,7 @@
     .tab { border: 1px solid var(--line); color: var(--muted); background: rgba(11,16,23,.72); border-radius: 999px; padding: 6px 10px; font-size: 13px; font-weight: 800; cursor: pointer; white-space:nowrap; }
     .tab.active { color: var(--ink); border-color: rgba(57,217,138,.45); background: var(--green-soft); }
     .grid { display: grid; gap: 7px; }
-    .score-grid { grid-template-columns: minmax(0, 1.2fr) repeat(5, minmax(0, 1fr)); gap: 10px; margin-bottom: 10px; }
+    .score-grid { grid-template-columns: minmax(0, 1.2fr) repeat(4, minmax(0, 1fr)) minmax(0, 1.15fr); gap: 10px; margin-bottom: 10px; }
     .card { background: linear-gradient(180deg, rgba(16,23,34,.92), rgba(8,12,18,.92)); border: 1px solid var(--line); border-radius: 18px; padding: 12px; box-shadow: 0 12px 34px rgba(0,0,0,.23); position: relative; overflow: hidden; }
     .card::after { content: ""; position: absolute; inset: 0; pointer-events: none; border-radius: inherit; background: linear-gradient(135deg, rgba(255,255,255,.07), transparent 34%); opacity: .38; }
     .panel-pnl { border-color: rgba(77,215,255,.24); background: linear-gradient(180deg, rgba(15,29,42,.95), rgba(8,13,20,.94)); }
@@ -66,11 +66,11 @@
     .panel-insights { border-color: rgba(57,217,138,.30); background: linear-gradient(180deg, rgba(12,38,29,.82), rgba(7,12,17,.95)); }
     .panel-watch { border-color: rgba(77,215,255,.28); background: linear-gradient(180deg, rgba(10,32,44,.86), rgba(7,12,17,.95)); }
     .panel-calendar { border-color: rgba(255,200,87,.24); background: linear-gradient(180deg, rgba(36,29,14,.82), rgba(8,12,18,.95)); }
-    .metric-card { min-width:0; border-radius: 11px; padding: 12px 14px; min-height: 62px; display: grid; grid-template-columns: minmax(0, 1fr); place-items: center; align-content: center; gap: 7px; }
+    .metric-card { min-width:0; border-radius: 14px; padding: 18px 16px; min-height: 94px; display: grid; grid-template-columns: minmax(0, 1fr); place-items: center; align-content: center; gap: 9px; }
     .metric-card.account, .metric-card.status { grid-column: auto; }
-    .metric-label { max-width:100%; overflow:hidden; text-overflow:ellipsis; color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: .08em; font-weight: 900; white-space: nowrap; text-align: center; }
-    .metric { max-width:100%; overflow:hidden; text-overflow:ellipsis; font-family: var(--mono); font-size: clamp(18px, 1.16vw, 24px); line-height: 1; letter-spacing: -.055em; font-weight: 950; white-space: nowrap; text-align: center; }
-    .metric.text { font-family: var(--sans); font-size: clamp(16px, 1.06vw, 21px); letter-spacing: -.04em; white-space: nowrap; overflow:hidden; text-overflow:ellipsis; text-align:center; }
+    .metric-label { max-width:100%; overflow:hidden; text-overflow:ellipsis; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .08em; font-weight: 900; white-space: nowrap; text-align: center; }
+    .metric { max-width:100%; overflow:hidden; text-overflow:ellipsis; font-family: var(--mono); font-size: clamp(20px, 1.28vw, 26px); line-height: 1; letter-spacing: -.055em; font-weight: 950; white-space: nowrap; text-align: center; }
+    .metric.text { font-family: var(--sans); font-size: clamp(18px, 1.16vw, 23px); letter-spacing: -.04em; white-space: nowrap; overflow:hidden; text-overflow:ellipsis; text-align:center; }
     .positive { color: var(--green); }
     .negative { color: var(--red); }
     .neutral { color: var(--ink); }
@@ -339,12 +339,12 @@
         ['Open / unrealized', d.open_unrealized, 'Current mark on still-open positions.'],
         ['Net marked now', d.net_marked_now, 'Closed after fees + open mark.'],
         ['Fees', -Math.abs(d.fees||0), `${d.fills||0} fills today`],
-        ['Total account value', totalAccount, accountNote],
+        ['Account value', totalAccount, accountNote],
         ['Day status', dayStatus, 'Giveback risk check']
       ];
       return metrics.map(([label,val,note]) => {
         const isText = typeof val === 'string';
-        const extra = label === 'Total account value' ? ' account' : label === 'Day status' ? ' status' : ' daily';
+        const extra = label === 'Account value' ? ' account' : label === 'Day status' ? ' status' : ' daily';
         return `<article class="card metric-card${extra}" title="${note}"><div class="metric-label">${label}</div><div class="metric ${isText ? 'text neutral' : cls(val)}">${isText ? val : fmt(val)}</div><div class="metric-note">${note}</div></article>`;
       }).join('');
     }
