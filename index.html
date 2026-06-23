@@ -264,10 +264,14 @@
     const num = n => (Number(n)||0).toLocaleString(undefined,{maximumFractionDigits:3});
     const cls = n => Number(n) > 0 ? 'positive' : Number(n) < 0 ? 'negative' : 'neutral';
     const clean = coin => String(coin||'—').replace('xyz:','');
-    function ageLabel(published) {
-      const t = Date.parse(published || '');
-      if (!Number.isFinite(t)) return '';
-      const mins = Math.max(0, Math.floor((Date.now() - t) / 60000));
+    function ageLabel(published, providedMinutes) {
+      const mins = Number.isFinite(Number(providedMinutes))
+        ? Math.max(0, Math.floor(Number(providedMinutes)))
+        : (() => {
+            const t = Date.parse(published || '');
+            return Number.isFinite(t) ? Math.max(0, Math.floor((Date.now() - t) / 60000)) : null;
+          })();
+      if (mins === null) return '';
       if (mins < 1) return 'just now';
       if (mins < 60) return `${mins}m ago`;
       const hours = Math.floor(mins / 60);
@@ -431,13 +435,13 @@
       const watchItems = [
         ['risk', '⚠️', 'Carryover risk', open ? `Watch ${open}. If price accepts below the entry/reclaim area, protect the day before looking for fresh adds.` : 'No open positions — focus first on market direction and only take clean reclaim/retest setups.'],
         ['leader', '🚀', 'Leadership check', leader ? `${leader[0]} was today’s best payer. Tomorrow, check whether it still has relative strength or if rotation moves to another semi/AI name.` : 'No clear payer yet; wait for one ticker to show leadership before sizing up.'],
-        ['news', '🗞️', 'News/catalyst scan', items.length ? `Latest headlines are feeding the watchlist below. Treat news as context only; require price acceptance and a clean invalidation before entry.` : 'News feed unavailable right now; rely on levels, relative strength, and the open-position table until refreshed.']
+        ['news', '🗞️', 'News/catalyst scan', items.length ? `Only ≤2-hour headlines are feeding the watchlist below. Treat news as context only; require price acceptance and a clean invalidation before entry.` : 'No ≤2-hour headlines available right now; the feed will stay quiet until fresher market news appears.']
       ];
       const headlines = items.slice(0,3).map(n => {
-        const age = ageLabel(n.published);
+        const age = ageLabel(n.published, n.age_minutes);
         return `<a class="news-headline" href="${n.link || '#'}" target="_blank" rel="noopener noreferrer">${n.title}${n.source ? ` · ${n.source}` : ''}${age ? ` · <span class="news-age">${age}</span>` : ''}</a>`;
       }).join('');
-      if (document.getElementById('newsPill')) document.getElementById('newsPill').textContent = items.length ? `${items.length} headlines` : 'news unavailable';
+      if (document.getElementById('newsPill')) document.getElementById('newsPill').textContent = items.length ? `${items.length} fresh ≤2h` : 'no fresh ≤2h';
       return watchItems.map(([tone,icon,title,text]) => `<div class="watch-item ${tone}"><div class="watch-icon">${icon}</div><div><b>${title}</b><span>${text}</span></div></div>`).join('') + headlines;
     }
     function renderHistory() {

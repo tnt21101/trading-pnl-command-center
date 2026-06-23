@@ -4,6 +4,7 @@
 Read-only: uses Hyperliquid Info API only. No private keys required.
 """
 import datetime as dt
+from email.utils import parsedate_to_datetime
 import json
 import os
 import urllib.parse
@@ -393,7 +394,8 @@ def fetch_account(label: str, address: str, start_ms: int, end_ms: int):
 
 def fetch_market_news(limit: int = 7):
     """Fetch lightweight public market headlines for tomorrow-watch context."""
-    query = "MU OR Micron OR SNDK OR SanDisk OR semiconductor stocks OR Nasdaq futures when:1d"
+    max_age_minutes = 120
+    query = "MU OR Micron OR SNDK OR SanDisk OR semiconductor stocks OR Nasdaq futures when:2h"
     url = "https://news.google.com/rss/search?" + urllib.parse.urlencode({
         "q": query,
         "hl": "en-US",
@@ -407,19 +409,35 @@ def fetch_market_news(limit: int = 7):
     except Exception as exc:
         return {"source": "Google News", "ok": False, "error": str(exc), "items": []}
     root = ET.fromstring(raw)
+    now_utc = dt.datetime.now(dt.timezone.utc)
     items = []
-    for item in root.findall("./channel/item")[:limit]:
+    for item in root.findall("./channel/item"):
         title = (item.findtext("title") or "").strip()
         source = item.findtext("source") or ""
+        published = item.findtext("pubDate") or ""
+        try:
+            published_dt = parsedate_to_datetime(published)
+            if published_dt.tzinfo is None:
+                published_dt = published_dt.replace(tzinfo=dt.timezone.utc)
+            published_dt = published_dt.astimezone(dt.timezone.utc)
+            age_minutes = max(0, int((now_utc - published_dt).total_seconds() // 60))
+        except Exception:
+            published_dt = None
+            age_minutes = None
+        if age_minutes is None or age_minutes > max_age_minutes:
+            continue
         # Google News titles often append " - Publisher"; keep the cleaner left side.
         clean_title = title.rsplit(" - ", 1)[0] if " - " in title else title
         items.append({
             "title": clean_title,
             "source": source.strip(),
             "link": item.findtext("link") or "",
-            "published": item.findtext("pubDate") or "",
+            "published": published,
+            "age_minutes": age_minutes,
         })
-    return {"source": "Google News", "ok": True, "query": query, "items": items}
+        if len(items) >= limit:
+            break
+    return {"source": "Google News", "ok": True, "query": query, "max_age_minutes": max_age_minutes, "items": items}
 
 
 def main():
