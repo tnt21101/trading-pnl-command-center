@@ -56,7 +56,7 @@
     .tab { border: 1px solid var(--line); color: var(--muted); background: rgba(11,16,23,.72); border-radius: 999px; padding: 6px 10px; font-size: 13px; font-weight: 800; cursor: pointer; white-space:nowrap; }
     .tab.active { color: var(--ink); border-color: rgba(57,217,138,.45); background: var(--green-soft); }
     .grid { display: grid; gap: 7px; }
-    .score-grid { grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; margin-bottom: 10px; }
+    .score-grid { grid-template-columns: minmax(0, 1.2fr) repeat(5, minmax(0, 1fr)); gap: 10px; margin-bottom: 10px; }
     .card { background: linear-gradient(180deg, rgba(16,23,34,.92), rgba(8,12,18,.92)); border: 1px solid var(--line); border-radius: 18px; padding: 12px; box-shadow: 0 12px 34px rgba(0,0,0,.23); position: relative; overflow: hidden; }
     .card::after { content: ""; position: absolute; inset: 0; pointer-events: none; border-radius: inherit; background: linear-gradient(135deg, rgba(255,255,255,.07), transparent 34%); opacity: .38; }
     .panel-pnl { border-color: rgba(77,215,255,.24); background: linear-gradient(180deg, rgba(15,29,42,.95), rgba(8,13,20,.94)); }
@@ -112,6 +112,7 @@
     .news-headline:hover { color:#c8f3ff; text-decoration:underline; text-underline-offset:3px; }
     .news-headline::before { content:'🗞️'; position:absolute; left:4px; top:7px; opacity:.85; }
     .news-headline::after { content:'↗'; position:absolute; right:6px; top:7px; color:rgba(142,223,255,.86); font-weight:900; }
+    .news-age { color:var(--muted); font-size:12px; white-space:nowrap; }
     textarea { width: 100%; min-height: 58px; resize: vertical; color: var(--ink); background: rgba(0,0,0,.22); border: 1px solid var(--line); border-radius: 12px; padding: 9px; font: 500 15px/1.35 var(--sans); outline: none; }
     textarea:focus { border-color: rgba(57,217,138,.55); box-shadow: 0 0 0 3px rgba(57,217,138,.08); }
     .btn-row { display:flex; gap:7px; flex-wrap:wrap; margin-top: 8px; }
@@ -162,9 +163,9 @@
     .cal-top { display:flex; justify-content:space-between; align-items:center; color:var(--muted); font:800 13px/1 var(--mono); }
     .cal-pnl { font:900 14px/1 var(--mono); text-align:right; }
     .cal-meta { color:var(--faint); font-size: 12px; text-align:right; }
-    @media (max-width: 1250px) { header { grid-template-columns: 1fr; } .status-card { justify-content:flex-start; flex-wrap:wrap; } .tabs { justify-content:flex-start; } .score-grid { grid-template-columns: repeat(3, 1fr); } }
+    @media (max-width: 1250px) { header { grid-template-columns: 1fr; } .status-card { justify-content:flex-start; flex-wrap:wrap; } .tabs { justify-content:flex-start; } .score-grid { grid-template-columns: minmax(0, 1.2fr) repeat(2, minmax(0, 1fr)); } }
     @media (max-width: 1100px) { .section, .section.wide, .analysis-layout, .timeline { grid-template-columns: 1fr; } .side-stack { display:grid; } }
-    @media (max-width: 700px) { .app { width: min(100vw - 12px, 1500px); padding-top: 6px; } .card { padding: 10px; border-radius: 16px; overflow-x:auto; } .score-grid { grid-template-columns: repeat(2, 1fr); } .replay-grid { grid-template-columns: repeat(2, 1fr); } .trade, .journal-line { grid-template-columns: 1fr; } }
+    @media (max-width: 700px) { .app { width: min(100vw - 12px, 1500px); padding-top: 6px; } .card { padding: 10px; border-radius: 16px; overflow-x:auto; } .score-grid { grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); } .replay-grid { grid-template-columns: repeat(2, 1fr); } .trade, .journal-line { grid-template-columns: 1fr; } }
   </style>
 </head>
 <body>
@@ -263,6 +264,17 @@
     const num = n => (Number(n)||0).toLocaleString(undefined,{maximumFractionDigits:3});
     const cls = n => Number(n) > 0 ? 'positive' : Number(n) < 0 ? 'negative' : 'neutral';
     const clean = coin => String(coin||'—').replace('xyz:','');
+    function ageLabel(published) {
+      const t = Date.parse(published || '');
+      if (!Number.isFinite(t)) return '';
+      const mins = Math.max(0, Math.floor((Date.now() - t) / 60000));
+      if (mins < 1) return 'just now';
+      if (mins < 60) return `${mins}m ago`;
+      const hours = Math.floor(mins / 60);
+      if (hours < 24) return `${hours}h ago`;
+      const days = Math.floor(hours / 24);
+      return `${days}d ago`;
+    }
     async function load() {
       try {
         const res = await fetch('/api/latest?ts=' + Date.now());
@@ -421,7 +433,10 @@
         ['leader', '🚀', 'Leadership check', leader ? `${leader[0]} was today’s best payer. Tomorrow, check whether it still has relative strength or if rotation moves to another semi/AI name.` : 'No clear payer yet; wait for one ticker to show leadership before sizing up.'],
         ['news', '🗞️', 'News/catalyst scan', items.length ? `Latest headlines are feeding the watchlist below. Treat news as context only; require price acceptance and a clean invalidation before entry.` : 'News feed unavailable right now; rely on levels, relative strength, and the open-position table until refreshed.']
       ];
-      const headlines = items.slice(0,3).map(n => `<a class="news-headline" href="${n.link || '#'}" target="_blank" rel="noopener noreferrer">${n.title}${n.source ? ` · ${n.source}` : ''}</a>`).join('');
+      const headlines = items.slice(0,3).map(n => {
+        const age = ageLabel(n.published);
+        return `<a class="news-headline" href="${n.link || '#'}" target="_blank" rel="noopener noreferrer">${n.title}${n.source ? ` · ${n.source}` : ''}${age ? ` · <span class="news-age">${age}</span>` : ''}</a>`;
+      }).join('');
       if (document.getElementById('newsPill')) document.getElementById('newsPill').textContent = items.length ? `${items.length} headlines` : 'news unavailable';
       return watchItems.map(([tone,icon,title,text]) => `<div class="watch-item ${tone}"><div class="watch-icon">${icon}</div><div><b>${title}</b><span>${text}</span></div></div>`).join('') + headlines;
     }
