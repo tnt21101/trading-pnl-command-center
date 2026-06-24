@@ -464,6 +464,57 @@ def main():
     print(f"Wrote {OUT}")
     print(f"Manual net marked: ${payload['manual']['net_marked_now']:,.2f}")
     print(f"Managed net marked: ${payload['managed']['net_marked_now']:,.2f}")
+    # Auto-persist previous day to history if missing
+    yesterday_start = (now - dt.timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+    yesterday_date = yesterday_start.date().isoformat()
+    history_path = DATA_DIR / "history.json"
+    if history_path.exists():
+        try:
+            history = json.loads(history_path.read_text(encoding="utf-8"))
+            days = history.get("days", [])
+            if not any(d["date"] == yesterday_date for d in days):
+                y_ms = int(yesterday_start.timestamp() * 1000)
+                y_end = int(yesterday_start.replace(hour=23, minute=59, second=59, microsecond=999000).timestamp() * 1000)
+                y_fills = post({"type": "userFillsByTime", "user": MANUAL, "startTime": y_ms, "endTime": y_end})
+                y_closed = sum(float(f.get("closedPnl", 0)) for f in y_fills)
+                y_fees = sum(abs(float(f.get("fee", 0))) for f in y_fills)
+                days.append({
+                    "date": yesterday_date,
+                    "result": "Win" if y_closed > y_fees else "Loss",
+                    "realized_after_fees": round(y_closed - y_fees, 2),
+                    "fees": round(y_fees, 2),
+                    "fills": len(y_fills),
+                    "source": "live",
+                })
+                days.sort(key=lambda d: d["date"])
+                history["days"] = days
+                history_path.write_text(json.dumps(history, indent=2), encoding="utf-8")
+                print(f"Persisted {yesterday_date} to history.json: ${y_closed - y_fees:,.2f}")
+        except Exception as exc:
+            print(f"History persist skipped: {exc}")
+    # Also check if today's managed day should be persisted
+    managed_history_path = DATA_DIR / "managed_history.json"
+    if managed_history_path.exists():
+        try:
+            mh = json.loads(managed_history_path.read_text(encoding="utf-8"))
+            mdays = mh.get("days", [])
+            if not any(d["date"] == yesterday_date for d in mdays):
+                y_fills = post({"type": "userFillsByTime", "user": load_managed_address(), "startTime": int(yesterday_start.timestamp() * 1000), "endTime": int(yesterday_start.replace(hour=23, minute=59, second=59, microsecond=999000).timestamp() * 1000)})
+                y_closed = sum(float(f.get("closedPnl", 0)) for f in y_fills)
+                y_fees = sum(abs(float(f.get("fee", 0))) for f in y_fills)
+                mdays.append({
+                    "date": yesterday_date,
+                    "result": "Win" if y_closed > y_fees else "Loss",
+                    "realized_after_fees": round(y_closed - y_fees, 2),
+                    "fees": round(y_fees, 2),
+                    "fills": len(y_fills),
+                    "source": "live",
+                })
+                mdays.sort(key=lambda d: d["date"])
+                mh["days"] = mdays
+                managed_history_path.write_text(json.dumps(mh, indent=2), encoding="utf-8")
+        except Exception:
+            pass
 
 
 if __name__ == "__main__":
