@@ -64,6 +64,30 @@ def safe_float(value):
         return 0.0
 
 
+def dedupe_fills(fills: list[dict]) -> list[dict]:
+    """Remove duplicate Hyperliquid fill rows by durable fill identity."""
+    if not isinstance(fills, list):
+        return []
+    seen = set()
+    unique = []
+    for fill in fills:
+        key = (
+            fill.get("time"),
+            fill.get("coin"),
+            fill.get("oid"),
+            fill.get("dir"),
+            fill.get("sz"),
+            fill.get("px"),
+            fill.get("closedPnl"),
+            fill.get("fee"),
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(fill)
+    return unique
+
+
 def money(value: float) -> str:
     sign = "+" if value >= 0 else "-"
     return f"{sign}${abs(value):,.2f}"
@@ -230,9 +254,7 @@ def analyze_replay(fills: list[dict], open_unrealized: float = 0.0) -> dict:
 def fetch_month_days(address: str, start_ms: int, end_ms: int):
     """Return daily realized-after-fees rows from HL fills for the calendar."""
     main, _role = resolve_user(address)
-    fills = post({"type": "userFillsByTime", "user": main, "startTime": start_ms, "endTime": end_ms, "aggregateByTime": False})
-    if not isinstance(fills, list):
-        fills = []
+    fills = dedupe_fills(post({"type": "userFillsByTime", "user": main, "startTime": start_ms, "endTime": end_ms, "aggregateByTime": False}))
     by_date = defaultdict(lambda: {"realized_after_fees": 0.0, "fees": 0.0, "fills": 0, "volume": 0.0})
     for fill in fills:
         ts = int(fill.get("time") or 0)
@@ -258,9 +280,7 @@ def fetch_month_days(address: str, start_ms: int, end_ms: int):
 
 def fetch_account(label: str, address: str, start_ms: int, end_ms: int):
     main, role = resolve_user(address)
-    fills = post({"type": "userFillsByTime", "user": main, "startTime": start_ms, "endTime": end_ms, "aggregateByTime": False})
-    if not isinstance(fills, list):
-        fills = []
+    fills = dedupe_fills(post({"type": "userFillsByTime", "user": main, "startTime": start_ms, "endTime": end_ms, "aggregateByTime": False}))
 
     closed = sum(safe_float(f.get("closedPnl")) for f in fills)
     fees = sum(safe_float(f.get("fee")) for f in fills)
@@ -464,7 +484,8 @@ def main():
     print(f"Wrote {OUT}")
     print(f"Manual net marked: ${payload['manual']['net_marked_now']:,.2f}")
     print(f"Managed net marked: ${payload['managed']['net_marked_now']:,.2f}")
-    # Auto-persist previous day to history if missing
+    # Auto-persist previous day to history, updating the row if late fills or
+    # duplicate-safe accounting changes the final number.
     yesterday_start = (now - dt.timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
     yesterday_date = yesterday_start.date().isoformat()
     history_path = DATA_DIR / "history.json"
@@ -472,20 +493,31 @@ def main():
         try:
             history = json.loads(history_path.read_text(encoding="utf-8"))
             days = history.get("days", [])
-            if not any(d["date"] == yesterday_date for d in days):
-                y_ms = int(yesterday_start.timestamp() * 1000)
-                y_end = int(yesterday_start.replace(hour=23, minute=59, second=59, microsecond=999000).timestamp() * 1000)
-                y_fills = post({"type": "userFillsByTime", "user": MANUAL, "startTime": y_ms, "endTime": y_end})
-                y_closed = sum(float(f.get("closedPnl", 0)) for f in y_fills)
-                y_fees = sum(abs(float(f.get("fee", 0))) for f in y_fills)
-                days.append({
-                    "date": yesterday_date,
-                    "result": "Win" if y_closed > y_fees else "Loss",
-                    "realized_after_fees": round(y_closed - y_fees, 2),
-                    "fees": round(y_fees, 2),
-                    "fills": len(y_fills),
-                    "source": "live",
-                })
+            y_ms = int(yesterday_start.timestamp() * 1000)
+            y_end = int(yesterday_start.replace(hour=23, minute=59, second=59, microsecond=999000).timestamp() * 1000)
+            y_main, _role = resolve_user(MANUAL)
+            y_fills = dedupe_fills(post({"type": "userFillsByTime", "user": y_main, "startTime": y_ms, "endTime": y_end, "aggregateByTime": False}))
+            y_closed = sum(safe_float(f.get("closedPnl")) for f in y_fills)
+            y_fees = sum(safe_float(f.get("fee")) for f in y_fills)
+            y_row = {
+                "date": yesterday_date,
+                "result": "Win" if y_closed > y_fees else "Loss" if y_closed < y_fees else "Flat",
+                "realized_after_fees": round(y_closed - y_fees, 2),
+                "fees": round(y_fees, 2),
+                "fills": len(y_fills),
+                "source": "live",
+            }
+            replaced = False
+            for idx, day in enumerate(days):
+                if day.get("date") == yesterday_date:
+                    if any(day.get(k) != y_row[k] for k in ["result", "realized_after_fees", "fees", "fills", "source"]):
+                        days[idx] = {**day, **y_row}
+                        replaced = True
+                    break
+            else:
+                days.append(y_row)
+                replaced = True
+            if replaced:
                 days.sort(key=lambda d: d["date"])
                 history["days"] = days
                 history_path.write_text(json.dumps(history, indent=2), encoding="utf-8")
@@ -498,18 +530,29 @@ def main():
         try:
             mh = json.loads(managed_history_path.read_text(encoding="utf-8"))
             mdays = mh.get("days", [])
-            if not any(d["date"] == yesterday_date for d in mdays):
-                y_fills = post({"type": "userFillsByTime", "user": load_managed_address(), "startTime": int(yesterday_start.timestamp() * 1000), "endTime": int(yesterday_start.replace(hour=23, minute=59, second=59, microsecond=999000).timestamp() * 1000)})
-                y_closed = sum(float(f.get("closedPnl", 0)) for f in y_fills)
-                y_fees = sum(abs(float(f.get("fee", 0))) for f in y_fills)
-                mdays.append({
-                    "date": yesterday_date,
-                    "result": "Win" if y_closed > y_fees else "Loss",
-                    "realized_after_fees": round(y_closed - y_fees, 2),
-                    "fees": round(y_fees, 2),
-                    "fills": len(y_fills),
-                    "source": "live",
-                })
+            m_main, _role = resolve_user(load_managed_address())
+            y_fills = dedupe_fills(post({"type": "userFillsByTime", "user": m_main, "startTime": int(yesterday_start.timestamp() * 1000), "endTime": int(yesterday_start.replace(hour=23, minute=59, second=59, microsecond=999000).timestamp() * 1000), "aggregateByTime": False}))
+            y_closed = sum(safe_float(f.get("closedPnl")) for f in y_fills)
+            y_fees = sum(safe_float(f.get("fee")) for f in y_fills)
+            y_row = {
+                "date": yesterday_date,
+                "result": "Win" if y_closed > y_fees else "Loss" if y_closed < y_fees else "Flat",
+                "realized_after_fees": round(y_closed - y_fees, 2),
+                "fees": round(y_fees, 2),
+                "fills": len(y_fills),
+                "source": "live",
+            }
+            replaced = False
+            for idx, day in enumerate(mdays):
+                if day.get("date") == yesterday_date:
+                    if any(day.get(k) != y_row[k] for k in ["result", "realized_after_fees", "fees", "fills", "source"]):
+                        mdays[idx] = {**day, **y_row}
+                        replaced = True
+                    break
+            else:
+                mdays.append(y_row)
+                replaced = True
+            if replaced:
                 mdays.sort(key=lambda d: d["date"])
                 mh["days"] = mdays
                 managed_history_path.write_text(json.dumps(mh, indent=2), encoding="utf-8")
