@@ -446,7 +446,9 @@
       const monthStartFallback = today.slice(0, 8) + '01';
       const active = account === 'managed' ? data.managed : data.manual;
       const isManaged = account === 'managed';
-      const sourceDaysRaw = isManaged ? (data.managed?.month_days || []) : (historyData?.days || []);
+      const sourceDaysRaw = isManaged
+        ? (data.managed?.month_days || [])
+        : (data.manual?.month_days || historyData?.days || []);
       const sourceDays = [...sourceDaysRaw].filter(d => d.date && d.realized_after_fees !== null && d.realized_after_fees !== undefined);
       const byDate = Object.fromEntries(sourceDays.map(d => [d.date, {...d}]));
       if (active) {

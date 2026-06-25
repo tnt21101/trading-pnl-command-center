@@ -558,6 +558,31 @@ def main():
                 managed_history_path.write_text(json.dumps(mh, indent=2), encoding="utf-8")
         except Exception:
             pass
+    # Embed dashboard calendar history directly into latest.json so the UI does
+    # not depend on the old Notion-import file path succeeding in the browser.
+    try:
+        if history_path.exists():
+            history = json.loads(history_path.read_text(encoding="utf-8"))
+            month_days = [
+                day for day in history.get("days", [])
+                if str(day.get("date", "")).startswith(now.strftime("%Y-%m-"))
+            ]
+            today_row = {
+                "date": now.date().isoformat(),
+                "result": "Win" if payload["manual"]["closed_after_fees"] > 0 else "Loss" if payload["manual"]["closed_after_fees"] < 0 else "Flat",
+                "realized_after_fees": round(payload["manual"]["closed_after_fees"], 2),
+                "fees": round(payload["manual"]["fees"], 2),
+                "fills": payload["manual"]["fills"],
+                "source": "live_today",
+            }
+            month_days = [day for day in month_days if day.get("date") != today_row["date"]]
+            month_days.append(today_row)
+            month_days.sort(key=lambda d: d["date"])
+            payload["manual"]["month_days"] = month_days
+            payload["manual"]["month_start_date"] = now.replace(day=1).date().isoformat()
+            OUT.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    except Exception as exc:
+        print(f"Latest calendar embed skipped: {exc}")
 
 
 if __name__ == "__main__":
