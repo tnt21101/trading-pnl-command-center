@@ -9,6 +9,7 @@ Read-only: refresh script uses Hyperliquid Info API only.
 """
 from __future__ import annotations
 
+import datetime as dt
 import json
 import subprocess
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -18,6 +19,31 @@ from urllib.parse import unquote
 ROOT = Path(__file__).resolve().parent
 DATA = ROOT / "data" / "latest.json"
 FETCH = ROOT / "scripts" / "fetch_hl_pnl.py"
+MAX_LATEST_AGE_SECONDS = 30
+
+
+def run_refresh(timeout: int = 75):
+    return subprocess.run(
+        ["python3", str(FETCH)],
+        cwd=str(ROOT),
+        text=True,
+        capture_output=True,
+        timeout=timeout,
+        check=False,
+    )
+
+
+def latest_age_seconds(payload: dict) -> float | None:
+    generated = payload.get("generated_at")
+    if not generated:
+        return None
+    try:
+        generated_dt = dt.datetime.fromisoformat(str(generated))
+        if generated_dt.tzinfo is None:
+            generated_dt = generated_dt.replace(tzinfo=dt.timezone.utc)
+        return (dt.datetime.now(generated_dt.tzinfo) - generated_dt).total_seconds()
+    except Exception:
+        return None
 
 
 class Handler(SimpleHTTPRequestHandler):
@@ -39,10 +65,23 @@ class Handler(SimpleHTTPRequestHandler):
         path = unquote(self.path.split("?", 1)[0])
         if path == "/api/latest":
             if not DATA.exists():
-                self._json(404, {"ok": False, "error": "latest.json not found; call /api/refresh first"})
-                return
+                proc = run_refresh()
+                if proc.returncode != 0:
+                    self._json(500, {"ok": False, "error": proc.stderr or proc.stdout, "returncode": proc.returncode})
+                    return
             try:
-                self._json(200, json.loads(DATA.read_text(encoding="utf-8")))
+                payload = json.loads(DATA.read_text(encoding="utf-8"))
+                age = latest_age_seconds(payload)
+                if age is None or age > MAX_LATEST_AGE_SECONDS:
+                    proc = run_refresh()
+                    if proc.returncode == 0:
+                        payload = json.loads(DATA.read_text(encoding="utf-8"))
+                        payload["refresh_stdout"] = proc.stdout.strip()
+                    else:
+                        payload["stale_warning"] = proc.stderr or proc.stdout
+                self._json(200, payload)
+            except subprocess.TimeoutExpired:
+                self._json(504, {"ok": False, "error": "Hyperliquid refresh timed out"})
             except Exception as exc:
                 self._json(500, {"ok": False, "error": str(exc)})
             return
@@ -56,14 +95,7 @@ class Handler(SimpleHTTPRequestHandler):
             self._json(404, {"ok": False, "error": "not found"})
             return
         try:
-            proc = subprocess.run(
-                ["python3", str(FETCH)],
-                cwd=str(ROOT),
-                text=True,
-                capture_output=True,
-                timeout=45,
-                check=False,
-            )
+            proc = run_refresh()
             if proc.returncode != 0:
                 self._json(500, {"ok": False, "error": proc.stderr or proc.stdout, "returncode": proc.returncode})
                 return

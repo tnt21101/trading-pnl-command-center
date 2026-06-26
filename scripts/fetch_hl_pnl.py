@@ -7,6 +7,8 @@ import datetime as dt
 from email.utils import parsedate_to_datetime
 import json
 import os
+import time
+import urllib.error
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
@@ -21,20 +23,33 @@ OUT = DATA_DIR / "latest.json"
 MANUAL = "0x96abd7547C7ef5A0C4F2bF04DCD74Dd96A461b56"
 MANAGED_FALLBACK = "0xaf94bd422310674ECa7475239b9e515A198e5048"
 CT = ZoneInfo("America/Chicago")
+_RESOLVED_USERS: dict[str, tuple[str, object]] = {}
 
 
 def post(payload: dict):
     body = json.dumps(payload).encode()
-    req = urllib.request.Request(API, data=body, headers={"Content-Type": "application/json"})
-    with urllib.request.urlopen(req, timeout=25) as resp:
-        return json.loads(resp.read().decode())
+    for attempt in range(6):
+        req = urllib.request.Request(API, data=body, headers={"Content-Type": "application/json"})
+        try:
+            with urllib.request.urlopen(req, timeout=25) as resp:
+                return json.loads(resp.read().decode())
+        except urllib.error.HTTPError as exc:
+            if exc.code == 429 and attempt < 5:
+                time.sleep(1.5 * (attempt + 1))
+                continue
+            raise
 
 
 def resolve_user(address: str):
+    if address in _RESOLVED_USERS:
+        return _RESOLVED_USERS[address]
     role = post({"type": "userRole", "user": address})
     if isinstance(role, dict) and role.get("role") == "agent":
-        return role.get("data", {}).get("user", address), role
-    return address, role
+        resolved = (role.get("data", {}).get("user", address), role)
+    else:
+        resolved = (address, role)
+    _RESOLVED_USERS[address] = resolved
+    return resolved
 
 
 def load_managed_address():
@@ -287,32 +302,83 @@ def analyze_replay(fills: list[dict], open_unrealized: float = 0.0) -> dict:
     }
 
 
+def day_window_ms(day: dt.date) -> tuple[int, int]:
+    start = dt.datetime.combine(day, dt.time.min, CT)
+    end = dt.datetime.combine(day, dt.time.max, CT).replace(microsecond=999000)
+    return int(start.timestamp() * 1000), int(end.timestamp() * 1000)
+
+
+def summarize_fills_for_calendar(fills: list[dict]) -> dict:
+    closed = sum(safe_float(fill.get("closedPnl")) for fill in fills)
+    fees = sum(safe_float(fill.get("fee")) for fill in fills)
+    volume = sum(abs(safe_float(fill.get("sz")) * safe_float(fill.get("px"))) for fill in fills)
+    realized = closed - fees
+    return {
+        "result": "Win" if realized > 0 else "Loss" if realized < 0 else "Flat",
+        "realized_after_fees": round(realized, 2),
+        "fees": round(fees, 2),
+        "fills": len(fills),
+        "volume": round(volume, 2),
+        "source": "hyperliquid",
+    }
+
+
+def fetch_day_row(address: str, day: dt.date) -> dict:
+    """Return the authoritative fill-derived calendar row for one CT day."""
+    main, _role = resolve_user(address)
+    start_ms, end_ms = day_window_ms(day)
+    row = summarize_fills_for_calendar(fetch_fills_by_time(main, start_ms, end_ms))
+    row["date"] = day.isoformat()
+    return row
+
+
 def fetch_month_days(address: str, start_ms: int, end_ms: int):
     """Return daily realized-after-fees rows from HL fills for the calendar."""
     main, _role = resolve_user(address)
     fills = fetch_fills_by_time(main, start_ms, end_ms)
-    by_date = defaultdict(lambda: {"realized_after_fees": 0.0, "fees": 0.0, "fills": 0, "volume": 0.0})
+    by_date = defaultdict(list)
     for fill in fills:
         ts = int(fill.get("time") or 0)
         day = dt.datetime.fromtimestamp(ts / 1000, CT).date().isoformat()
-        rec = by_date[day]
-        rec["realized_after_fees"] += safe_float(fill.get("closedPnl")) - safe_float(fill.get("fee"))
-        rec["fees"] += safe_float(fill.get("fee"))
-        rec["fills"] += 1
-        rec["volume"] += abs(safe_float(fill.get("sz")) * safe_float(fill.get("px")))
-    return [
-        {
-            "date": day,
-            "realized_after_fees": rec["realized_after_fees"],
-            "fees": rec["fees"],
-            "fills": rec["fills"],
-            "volume": rec["volume"],
-            "result": "Win" if rec["realized_after_fees"] > 0 else "Loss" if rec["realized_after_fees"] < 0 else "Flat",
-            "source": "hyperliquid",
-        }
-        for day, rec in sorted(by_date.items())
-    ]
+        by_date[day].append(fill)
+    rows = []
+    for day, day_fills in sorted(by_date.items()):
+        row = summarize_fills_for_calendar(day_fills)
+        row["date"] = day
+        rows.append(row)
+    return rows
 
+
+def upsert_history_rows(path: Path, rows: list[dict], start_date: str | None = None):
+    """Overwrite stale dashboard history rows with authoritative HL rows."""
+    history = {"source": "hyperliquid", "days": []}
+    if path.exists():
+        try:
+            history = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            history = {"source": "hyperliquid", "days": []}
+    days = history.get("days", []) if isinstance(history.get("days"), list) else []
+    by_date = {day.get("date"): day for day in days if day.get("date")}
+    for row in rows:
+        date = row.get("date")
+        if not date:
+            continue
+        by_date[date] = {**row, "source": "hyperliquid"}
+    history["source"] = "hyperliquid"
+    if start_date:
+        history["start_date"] = start_date
+    ordered = [by_date[date] for date in sorted(by_date)]
+    history["days"] = ordered
+    history["totals"] = {
+        "days": len(ordered),
+        "realized_after_fees": round(sum(safe_float(day.get("realized_after_fees")) for day in ordered), 2),
+        "fees": round(sum(safe_float(day.get("fees")) for day in ordered), 2),
+        "fills": sum(int(safe_float(day.get("fills"))) for day in ordered),
+        "wins": sum(1 for day in ordered if safe_float(day.get("realized_after_fees")) > 0),
+        "losses": sum(1 for day in ordered if safe_float(day.get("realized_after_fees")) < 0),
+    }
+    path.write_text(json.dumps(history, indent=2), encoding="utf-8")
+    return history
 
 def fetch_account(label: str, address: str, start_ms: int, end_ms: int):
     main, role = resolve_user(address)
@@ -520,103 +586,51 @@ def main():
     print(f"Wrote {OUT}")
     print(f"Manual net marked: ${payload['manual']['net_marked_now']:,.2f}")
     print(f"Managed net marked: ${payload['managed']['net_marked_now']:,.2f}")
-    # Auto-persist previous day to history, updating the row if late fills or
-    # duplicate-safe accounting changes the final number.
-    yesterday_start = (now - dt.timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
-    yesterday_date = yesterday_start.date().isoformat()
     history_path = DATA_DIR / "history.json"
-    if history_path.exists():
-        try:
-            history = json.loads(history_path.read_text(encoding="utf-8"))
-            days = history.get("days", [])
-            y_ms = int(yesterday_start.timestamp() * 1000)
-            y_end = int(yesterday_start.replace(hour=23, minute=59, second=59, microsecond=999000).timestamp() * 1000)
-            y_main, _role = resolve_user(MANUAL)
-            y_fills = fetch_fills_by_time(y_main, y_ms, y_end)
-            y_closed = sum(safe_float(f.get("closedPnl")) for f in y_fills)
-            y_fees = sum(safe_float(f.get("fee")) for f in y_fills)
-            y_row = {
-                "date": yesterday_date,
-                "result": "Win" if y_closed > y_fees else "Loss" if y_closed < y_fees else "Flat",
-                "realized_after_fees": round(y_closed - y_fees, 2),
-                "fees": round(y_fees, 2),
-                "fills": len(y_fills),
-                "source": "live",
-            }
-            replaced = False
-            for idx, day in enumerate(days):
-                if day.get("date") == yesterday_date:
-                    if any(day.get(k) != y_row[k] for k in ["result", "realized_after_fees", "fees", "fills", "source"]):
-                        days[idx] = {**day, **y_row}
-                        replaced = True
-                    break
-            else:
-                days.append(y_row)
-                replaced = True
-            if replaced:
-                days.sort(key=lambda d: d["date"])
-                history["days"] = days
-                history_path.write_text(json.dumps(history, indent=2), encoding="utf-8")
-                print(f"Persisted {yesterday_date} to history.json: ${y_closed - y_fees:,.2f}")
-        except Exception as exc:
-            print(f"History persist skipped: {exc}")
-    # Also check if today's managed day should be persisted
     managed_history_path = DATA_DIR / "managed_history.json"
-    if managed_history_path.exists():
-        try:
-            mh = json.loads(managed_history_path.read_text(encoding="utf-8"))
-            mdays = mh.get("days", [])
-            m_main, _role = resolve_user(load_managed_address())
-            y_fills = fetch_fills_by_time(m_main, int(yesterday_start.timestamp() * 1000), int(yesterday_start.replace(hour=23, minute=59, second=59, microsecond=999000).timestamp() * 1000))
-            y_closed = sum(safe_float(f.get("closedPnl")) for f in y_fills)
-            y_fees = sum(safe_float(f.get("fee")) for f in y_fills)
-            y_row = {
-                "date": yesterday_date,
-                "result": "Win" if y_closed > y_fees else "Loss" if y_closed < y_fees else "Flat",
-                "realized_after_fees": round(y_closed - y_fees, 2),
-                "fees": round(y_fees, 2),
-                "fills": len(y_fills),
-                "source": "live",
-            }
-            replaced = False
-            for idx, day in enumerate(mdays):
-                if day.get("date") == yesterday_date:
-                    if any(day.get(k) != y_row[k] for k in ["result", "realized_after_fees", "fees", "fills", "source"]):
-                        mdays[idx] = {**day, **y_row}
-                        replaced = True
-                    break
-            else:
-                mdays.append(y_row)
-                replaced = True
-            if replaced:
-                mdays.sort(key=lambda d: d["date"])
-                mh["days"] = mdays
-                managed_history_path.write_text(json.dumps(mh, indent=2), encoding="utf-8")
-        except Exception:
-            pass
-    # Embed dashboard calendar history directly into latest.json so the UI does
-    # not depend on the old Notion-import file path succeeding in the browser.
+    yesterday = (now - dt.timedelta(days=1)).date()
+    today = now.date()
+
+    # Keep persisted history correction-safe. Every live fetch overwrites the
+    # completed prior CT day from Hyperliquid fills, so stale Notion/import rows
+    # and capped-fill rows cannot survive indefinitely.
     try:
-        if history_path.exists():
-            history = json.loads(history_path.read_text(encoding="utf-8"))
-            month_days = [
-                day for day in history.get("days", [])
-                if str(day.get("date", "")).startswith(now.strftime("%Y-%m-"))
-            ]
-            today_row = {
-                "date": now.date().isoformat(),
-                "result": "Win" if payload["manual"]["closed_after_fees"] > 0 else "Loss" if payload["manual"]["closed_after_fees"] < 0 else "Flat",
-                "realized_after_fees": round(payload["manual"]["closed_after_fees"], 2),
-                "fees": round(payload["manual"]["fees"], 2),
-                "fills": payload["manual"]["fills"],
-                "source": "live_today",
-            }
-            month_days = [day for day in month_days if day.get("date") != today_row["date"]]
-            month_days.append(today_row)
-            month_days.sort(key=lambda d: d["date"])
-            payload["manual"]["month_days"] = month_days
-            payload["manual"]["month_start_date"] = now.replace(day=1).date().isoformat()
-            OUT.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        y_row = fetch_day_row(MANUAL, yesterday)
+        history = upsert_history_rows(history_path, [y_row], start_date=month_start.date().isoformat())
+        print(f"Persisted {y_row['date']} to history.json: ${y_row['realized_after_fees']:,.2f}")
+    except Exception as exc:
+        print(f"History persist skipped: {exc}")
+        history = json.loads(history_path.read_text(encoding="utf-8")) if history_path.exists() else {"days": []}
+
+    try:
+        managed_y_row = fetch_day_row(managed_address, yesterday)
+        upsert_history_rows(managed_history_path, [managed_y_row], start_date=month_start.date().isoformat())
+    except Exception as exc:
+        print(f"Managed history persist skipped: {exc}")
+
+    # Embed the active manual month into latest.json. Historical cells come from
+    # the corrected local history, while today's cell comes from the already-live
+    # CT-day account snapshot to keep refresh fast and exact.
+    try:
+        month_days = [
+            day for day in history.get("days", [])
+            if str(day.get("date", "")).startswith(now.strftime("%Y-%m-"))
+        ]
+        today_row = {
+            "date": today.isoformat(),
+            "result": "Win" if payload["manual"]["closed_after_fees"] > 0 else "Loss" if payload["manual"]["closed_after_fees"] < 0 else "Flat",
+            "realized_after_fees": round(payload["manual"]["closed_after_fees"], 2),
+            "fees": round(payload["manual"]["fees"], 2),
+            "fills": payload["manual"]["fills"],
+            "volume": round(payload["manual"].get("volume", 0), 2),
+            "source": "live_today",
+        }
+        month_days = [day for day in month_days if day.get("date") != today_row["date"]]
+        month_days.append(today_row)
+        month_days.sort(key=lambda d: d["date"])
+        payload["manual"]["month_days"] = month_days
+        payload["manual"]["month_start_date"] = month_start.date().isoformat()
+        OUT.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     except Exception as exc:
         print(f"Latest calendar embed skipped: {exc}")
 
