@@ -64,6 +64,19 @@ def safe_float(value):
         return 0.0
 
 
+def fill_key(fill: dict) -> tuple:
+    return (
+        fill.get("time"),
+        fill.get("coin"),
+        fill.get("oid"),
+        fill.get("dir"),
+        fill.get("sz"),
+        fill.get("px"),
+        fill.get("closedPnl"),
+        fill.get("fee"),
+    )
+
+
 def dedupe_fills(fills: list[dict]) -> list[dict]:
     """Remove duplicate Hyperliquid fill rows by durable fill identity."""
     if not isinstance(fills, list):
@@ -71,21 +84,44 @@ def dedupe_fills(fills: list[dict]) -> list[dict]:
     seen = set()
     unique = []
     for fill in fills:
-        key = (
-            fill.get("time"),
-            fill.get("coin"),
-            fill.get("oid"),
-            fill.get("dir"),
-            fill.get("sz"),
-            fill.get("px"),
-            fill.get("closedPnl"),
-            fill.get("fee"),
-        )
+        key = fill_key(fill)
         if key in seen:
             continue
         seen.add(key)
         unique.append(fill)
     return unique
+
+
+def fetch_fills_by_time(user: str, start_ms: int, end_ms: int) -> list[dict]:
+    """Fetch all fills in a window without losing recent rows to the HL 2k cap.
+
+    Hyperliquid can return a capped 2,000 rows for active days. If the whole
+    CT-day request hits that cap, the response may stop hours before now, so a
+    closed position will not show up in dashboard PnL. Split capped windows and
+    dedupe the combined result.
+    """
+    min_window_ms = 1_000
+    cap_threshold = 1900
+
+    def fetch_segment(start: int, end: int, depth: int = 0) -> list[dict]:
+        if end <= start:
+            return []
+        payload = {
+            "type": "userFillsByTime",
+            "user": user,
+            "startTime": start,
+            "endTime": end,
+            "aggregateByTime": False,
+        }
+        fills = post(payload)
+        if not isinstance(fills, list):
+            return []
+        if len(fills) < cap_threshold or end - start <= min_window_ms or depth >= 20:
+            return fills
+        midpoint = start + (end - start) // 2
+        return fetch_segment(start, midpoint, depth + 1) + fetch_segment(midpoint + 1, end, depth + 1)
+
+    return dedupe_fills(fetch_segment(start_ms, end_ms))
 
 
 def money(value: float) -> str:
@@ -254,7 +290,7 @@ def analyze_replay(fills: list[dict], open_unrealized: float = 0.0) -> dict:
 def fetch_month_days(address: str, start_ms: int, end_ms: int):
     """Return daily realized-after-fees rows from HL fills for the calendar."""
     main, _role = resolve_user(address)
-    fills = dedupe_fills(post({"type": "userFillsByTime", "user": main, "startTime": start_ms, "endTime": end_ms, "aggregateByTime": False}))
+    fills = fetch_fills_by_time(main, start_ms, end_ms)
     by_date = defaultdict(lambda: {"realized_after_fees": 0.0, "fees": 0.0, "fills": 0, "volume": 0.0})
     for fill in fills:
         ts = int(fill.get("time") or 0)
@@ -280,7 +316,7 @@ def fetch_month_days(address: str, start_ms: int, end_ms: int):
 
 def fetch_account(label: str, address: str, start_ms: int, end_ms: int):
     main, role = resolve_user(address)
-    fills = dedupe_fills(post({"type": "userFillsByTime", "user": main, "startTime": start_ms, "endTime": end_ms, "aggregateByTime": False}))
+    fills = fetch_fills_by_time(main, start_ms, end_ms)
 
     closed = sum(safe_float(f.get("closedPnl")) for f in fills)
     fees = sum(safe_float(f.get("fee")) for f in fills)
@@ -496,7 +532,7 @@ def main():
             y_ms = int(yesterday_start.timestamp() * 1000)
             y_end = int(yesterday_start.replace(hour=23, minute=59, second=59, microsecond=999000).timestamp() * 1000)
             y_main, _role = resolve_user(MANUAL)
-            y_fills = dedupe_fills(post({"type": "userFillsByTime", "user": y_main, "startTime": y_ms, "endTime": y_end, "aggregateByTime": False}))
+            y_fills = fetch_fills_by_time(y_main, y_ms, y_end)
             y_closed = sum(safe_float(f.get("closedPnl")) for f in y_fills)
             y_fees = sum(safe_float(f.get("fee")) for f in y_fills)
             y_row = {
@@ -531,7 +567,7 @@ def main():
             mh = json.loads(managed_history_path.read_text(encoding="utf-8"))
             mdays = mh.get("days", [])
             m_main, _role = resolve_user(load_managed_address())
-            y_fills = dedupe_fills(post({"type": "userFillsByTime", "user": m_main, "startTime": int(yesterday_start.timestamp() * 1000), "endTime": int(yesterday_start.replace(hour=23, minute=59, second=59, microsecond=999000).timestamp() * 1000), "aggregateByTime": False}))
+            y_fills = fetch_fills_by_time(m_main, int(yesterday_start.timestamp() * 1000), int(yesterday_start.replace(hour=23, minute=59, second=59, microsecond=999000).timestamp() * 1000))
             y_closed = sum(safe_float(f.get("closedPnl")) for f in y_fills)
             y_fees = sum(safe_float(f.get("fee")) for f in y_fills)
             y_row = {
