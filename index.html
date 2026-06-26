@@ -442,7 +442,12 @@
     function renderHistory() {
       const el = document.getElementById('historyHeat');
       const pill = document.getElementById('historyPill');
-      const today = new Date().toISOString().slice(0,10);
+      // Use the dashboard collector's Central Time date. Browser UTC dates can
+      // roll over to tomorrow during CT evenings and falsely copy live PnL into
+      // the next calendar cell.
+      const today = (data.generated_at || '').slice(0, 10) || new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'America/Chicago', year: 'numeric', month: '2-digit', day: '2-digit'
+      }).format(new Date());
       const monthStartFallback = today.slice(0, 8) + '01';
       const active = account === 'managed' ? data.managed : data.manual;
       const isManaged = account === 'managed';
@@ -486,7 +491,8 @@
         const rec = byDate[iso];
         const pnl = rec ? Number(rec.realized_after_fees||0) : null;
         const state = pnl === null ? '' : pnl >= 0 ? 'win' : 'loss';
-        cells += `<div class="cal-day ${state}" title="${iso}${rec?.source==='live'?' · live':''}"><div class="cal-top"><span>${dayNum}</span><span>${rec?.source==='live'?'LIVE':''}</span></div><div><div class="cal-pnl ${pnl===null?'neutral':cls(pnl)}">${pnl===null?'—':fmt0(pnl)}</div><div class="cal-meta">${rec ? `${rec.fills||0} fills` : 'no data'}</div></div></div>`;
+        const isLive = !!rec && iso === today;
+        cells += `<div class="cal-day ${state}" title="${iso}${isLive?' · live':''}"><div class="cal-top"><span>${dayNum}</span><span>${isLive?'LIVE':''}</span></div><div><div class="cal-pnl ${pnl===null?'neutral':cls(pnl)}">${pnl===null?'—':fmt0(pnl)}</div><div class="cal-meta">${rec ? `${rec.fills||0} fills` : 'no data'}</div></div></div>`;
       }
       const startLabel = new Date(Date.UTC(yy, mm-1, Number(startDate.slice(8,10) || 1))).toLocaleDateString(undefined, {month:'short', day:'numeric', timeZone:'UTC'});
       const summary = `<div class="history-summary">
